@@ -1,0 +1,28 @@
+# Environment secrets - NEVER commit
+.env
+*.env
+
+# Database
+backend/health.db
+*.db
+
+# Garmin session tokens (contains OAuth credentials)
+backend/garmin_session/
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

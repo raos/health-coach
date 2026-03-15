@@ -1,0 +1,563 @@
+import hashlib
+import json
+from datetime import date, timedelta
+from typing import Optional, AsyncGenerator
+
+import anthropic
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+
+from config import settings
+from database.models import (
+    WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
+    HevyExerciseSet, UserProfile
+)
+from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
+from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT
+from prompts.health_advisor_system import HEALTH_ADVISOR_SYSTEM_PROMPT
+
+
+def _get_client() -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+
+def _build_current_stats(db: Session) -> str:
+    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
+    latest_weight = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
+    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
+    profile = db.query(UserProfile).first()
+
+    bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
+    lean = latest_dexa.lean_mass_lbs if latest_dexa else 123.9
+    weight = latest_weight.weight_lbs if latest_weight else (latest_dexa.total_weight_lbs if latest_dexa else 181.5)
+    vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
+    dexa_date = str(latest_dexa.scan_date) if latest_dexa else "2026-03-13"
+
+    return f"""- Weight: {weight} lbs (as of {str(latest_weight.date) if latest_weight else "unknown"})
+- Body fat: {bf}% (DEXA as of {dexa_date})
+- Lean mass: {lean} lbs
+- VO2 Max: {vo2} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else "2026-12-31"})
+- Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else "2026-12-31"}
+- Age: 46, training exclusively on Tonal (cable-based)"""
+
+
+def _build_recent_training(db: Session) -> str:
+    cutoff = date.today() - timedelta(days=14)
+
+    strava = (
+        db.query(StravaActivity)
+        .filter(StravaActivity.start_date >= cutoff.isoformat())
+        .order_by(desc(StravaActivity.start_date))
+        .limit(10)
+        .all()
+    )
+    hevy = (
+        db.query(HevyWorkout)
+        .filter(HevyWorkout.start_time >= cutoff.isoformat())
+        .order_by(desc(HevyWorkout.start_time))
+        .limit(10)
+        .all()
+    )
+
+    lines = []
+    for a in strava:
+        dist = f"{a.distance_m / 1609.34:.2f} mi" if a.distance_m else ""
+        hr = f"avg HR {a.average_hr} bpm" if a.average_hr else ""
+        lines.append(f"  - [Strava] {str(a.start_date)[:10]} {a.activity_type}: {a.name} {dist} {hr}".strip())
+    for w in hevy:
+        vol = f"{w.volume_lbs:.0f} lbs volume" if w.volume_lbs else ""
+        lines.append(f"  - [Hevy/Tonal] {str(w.start_time)[:10]}: {w.title or 'Workout'} {vol}".strip())
+
+    if not lines:
+        return "No recent training data available yet. Sync Strava and Hevy in the Coach section."
+    return "\n".join(lines)
+
+
+def build_context_hash(db: Session) -> str:
+    stats = _build_current_stats(db)
+    training = _build_recent_training(db)
+    return hashlib.md5(f"{stats}{training}".encode()).hexdigest()
+
+
+def _build_weekly_schedule(strength_days: int, cardio_days: int, rest_days: int) -> list[dict]:
+    """
+    Build a 7-day schedule assigning session types to Mon–Sun.
+    Strength sessions alternate upper/lower and vary A/B for repeated sessions.
+    Cardio days are interleaved between strength for recovery. Rest on Sunday by default.
+    """
+    days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    # Build strength session labels: alternate upper/lower, A then B
+    upper_count = (strength_days + 1) // 2  # ceil(n/2)
+    lower_count = strength_days // 2         # floor(n/2)
+    upper_labels = [f"Upper {'ABCDE'[i]}" for i in range(upper_count)]
+    lower_labels = [f"Lower {'ABCDE'[i]}" for i in range(lower_count)]
+
+    # Interleave upper and lower: Upper A, Lower A, Upper B, Lower B, ...
+    strength_sequence = []
+    for i in range(max(upper_count, lower_count)):
+        if i < upper_count:
+            strength_sequence.append(upper_labels[i])
+        if i < lower_count:
+            strength_sequence.append(lower_labels[i])
+    strength_sequence = strength_sequence[:strength_days]
+
+    # Assign sessions to days: spread strength days, fill gaps with cardio/rest
+    # Strategy: place a cardio day after every 2 consecutive strength days when possible
+    schedule = []
+    si = 0   # strength index
+    ci = 0   # cardio count used
+    ri = 0   # rest count used
+
+    for day_name in days_of_week:
+        if si < strength_days:
+            # After every pair of strength days, try to insert cardio if available
+            if si > 0 and si % 2 == 0 and ci < cardio_days:
+                schedule.append({"day": day_name, "type": "Cardio"})
+                ci += 1
+            else:
+                schedule.append({"day": day_name, "type": strength_sequence[si]})
+                si += 1
+        elif ci < cardio_days:
+            schedule.append({"day": day_name, "type": "Cardio"})
+            ci += 1
+        elif ri < rest_days:
+            schedule.append({"day": day_name, "type": "Rest"})
+            ri += 1
+
+    return schedule
+
+
+def generate_training_plan(
+    db: Session,
+    strength_days: int = 4,
+    cardio_days: int = 2,
+    rest_days: int = 1,
+) -> dict:
+    client = _get_client()
+    current_stats = _build_current_stats(db)
+    recent_training = _build_recent_training(db)
+
+    system = COACH_SYSTEM_PROMPT.format(
+        current_stats=current_stats,
+        recent_training=recent_training,
+    )
+
+    today = date.today()
+    days_to_monday = (7 - today.weekday()) % 7 or 7
+    next_monday = today + timedelta(days=days_to_monday)
+
+    schedule = _build_weekly_schedule(strength_days, cardio_days, rest_days)
+    schedule_desc = "\n".join(
+        f"  - {s['day']}: {s['type']}" for s in schedule
+    )
+
+    # Split schedule into two halves for two API calls
+    mid = (len(schedule) + 1) // 2
+    half_a = schedule[:mid]
+    half_b = schedule[mid:]
+
+    days_a = ", ".join(s["day"] for s in half_a)
+    days_b = ", ".join(s["day"] for s in half_b)
+
+    schedule_a = "\n".join(f"  - {s['day']}: {s['type']}" for s in half_a)
+    schedule_b = "\n".join(f"  - {s['day']}: {s['type']}" for s in half_b)
+
+    base_instructions = f"""Week starting {next_monday}. Full week schedule for context:
+{schedule_desc}
+
+IMPORTANT exercise variety rules:
+- Upper A and Upper B MUST use different exercises (different movement patterns, same muscle groups)
+- Lower A and Lower B MUST use different exercises (different movement patterns, same muscle groups)
+- Follow the Upper A/B and Lower A/B exercise selection guidelines from your system prompt exactly."""
+
+    prompt_a = f"""{base_instructions}
+
+Generate the training plan for ONLY these days: {days_a}
+Session assignments:
+{schedule_a}
+
+Return JSON with exactly two keys: "week_start" (string "{next_monday}") and "days" (array of {len(half_a)} day objects).
+Pure JSON only, no markdown."""
+
+    prompt_b = f"""{base_instructions}
+
+Generate the training plan for ONLY these days: {days_b}
+Session assignments:
+{schedule_b}
+
+Return JSON with exactly these keys: "days" (array of {len(half_b)} day objects for {days_b}), "weekly_overview", "weekly_notes", "deload_recommended".
+Pure JSON only, no markdown."""
+
+    part_a = _call_claude_json(client, system, prompt_a)
+    part_b = _call_claude_json(client, system, prompt_b)
+
+    return {
+        "week_start": part_a.get("week_start", str(next_monday)),
+        "weekly_overview": part_b.get("weekly_overview", ""),
+        "days": part_a.get("days", []) + part_b.get("days", []),
+        "weekly_notes": part_b.get("weekly_notes", ""),
+        "deload_recommended": part_b.get("deload_recommended", False),
+        "config": {
+            "strength_days": strength_days,
+            "cardio_days": cardio_days,
+            "rest_days": rest_days,
+        },
+    }
+
+
+def _call_claude_json(client: anthropic.Anthropic, system: str, prompt: str) -> dict:
+    """Make a Claude call and return parsed JSON. Raises ValueError if truncated."""
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=8192,
+        temperature=0.5,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    content = response.content[0].text.strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+        content = content.strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Response truncated (stop_reason={response.stop_reason}). Detail: {e}"
+        ) from e
+
+
+_DEFAULT_BREAKFAST_PREFS = (
+    "Rotate among these 3 options each week — keep them simple, no cooking required:\n"
+    "1. Overnight oats: rolled oats + 1 scoop whey protein + unsweetened almond milk + hemp/pumpkin seeds + fruit (berries or banana). Prep night before.\n"
+    "2. Protein smoothie: whey protein + creatine (5g) + frozen fruit + non-fat Greek yogurt + hemp/pumpkin seeds + unsweetened almond milk. Blend and go.\n"
+    "3. Eggs + toast + cottage cheese: 2-3 pasture-raised eggs (any style) + 1-2 slices Dave's Killer Bread + 1/2 cup cottage cheese. 10 min max.\n"
+    "NO traditional Indian breakfast (no idli, dosa, upma, etc.). Keep it quick and high protein."
+)
+
+_DEFAULT_DINNER_PREFS = (
+    "South Indian home cooking preferred: sambar with rice, kootu, poriyal, rasam, dal tadka, "
+    "chana masala, rajma, paneer dishes, egg curries. Occasional non-Indian (pasta, grain bowls) is fine 1-2x/week."
+)
+
+
+def generate_meal_plan(
+    db: Session,
+    calorie_target: Optional[int] = None,
+    breakfast_prefs: Optional[str] = None,
+    lunch_prefs: Optional[str] = None,
+    dinner_prefs: Optional[str] = None,
+) -> dict:
+    client = _get_client()
+    profile = db.query(UserProfile).first()
+    latest_weight_entry = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
+
+    weight = latest_weight_entry.weight_lbs if latest_weight_entry else 181.5
+    calorie_target = calorie_target or (profile.calorie_target if profile else 2200)
+
+    protein_g = 145
+    fat_g = round(calorie_target * 0.25 / 9)
+    remaining = calorie_target - (protein_g * 4) - (fat_g * 9)
+    carbs_g = max(100, round(remaining / 4))
+
+    calorie_context = f"""- Daily calorie target: {calorie_target} kcal (mild deficit for fat loss)
+- Estimated TDEE for 46yo male, {weight:.0f} lbs, moderately active: ~{calorie_target + 350} kcal
+- Protein: {protein_g}g (priority — 140-150g/day target for muscle retention)
+- Fat: {fat_g}g
+- Carbs: {carbs_g}g
+- Calorie breakdown: P={protein_g*4}kcal, F={fat_g*9}kcal, C={carbs_g*4}kcal"""
+
+    breakfast_context = breakfast_prefs or _DEFAULT_BREAKFAST_PREFS
+    user_prefs_section = ""
+    if lunch_prefs:
+        user_prefs_section += f"## Lunch Preferences\n{lunch_prefs}\n\n"
+    if dinner_prefs:
+        user_prefs_section += f"## Dinner Preferences\n{dinner_prefs}"
+    else:
+        user_prefs_section += f"## Dinner Preferences\n{_DEFAULT_DINNER_PREFS}"
+
+    system = NUTRITION_SYSTEM_PROMPT.format(
+        calorie_context=calorie_context,
+        calorie_target=calorie_target,
+        breakfast_context=breakfast_context,
+        user_preferences=user_prefs_section,
+    )
+
+    today = date.today()
+    days_to_monday = (7 - today.weekday()) % 7 or 7
+    next_monday = today + timedelta(days=days_to_monday)
+
+    # Split into two calls to stay within token limits:
+    # Call 1: Monday–Thursday (meals only)
+    # Call 2: Friday–Sunday + shopping list + weekly notes
+    prompt_a = f"""Generate a South Indian vegetarian meal plan for Monday, Tuesday, Wednesday, Thursday of the week starting {next_monday}.
+Return JSON with exactly two keys: "week_start" (string "{next_monday}") and "days" (array of 4 day objects).
+No shopping list. Pure JSON only, no markdown."""
+
+    prompt_b = f"""Generate a South Indian vegetarian meal plan for Friday, Saturday, Sunday of the week starting {next_monday}.
+Return JSON with exactly these keys: "daily_target_kcal" ({calorie_target}), "days" (array of 3 day objects for Fri/Sat/Sun), "shopping_list", "weekly_notes".
+The shopping_list should cover ingredients for a full week of South Indian vegetarian meals.
+Pure JSON only, no markdown."""
+
+    part_a = _call_claude_json(client, system, prompt_a)
+    part_b = _call_claude_json(client, system, prompt_b)
+
+    # Merge: combine days, take metadata + shopping list from part_b
+    return {
+        "week_start": part_a.get("week_start", str(next_monday)),
+        "daily_target_kcal": part_b.get("daily_target_kcal", calorie_target),
+        "days": part_a.get("days", []) + part_b.get("days", []),
+        "shopping_list": part_b.get("shopping_list", {}),
+        "weekly_notes": part_b.get("weekly_notes", ""),
+    }
+
+
+def generate_health_insights(db: Session) -> str:
+    client = _get_client()
+    profile = db.query(UserProfile).first()
+    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
+    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
+    latest_weight = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
+
+    # Weight trend (last 30 days)
+    cutoff = date.today() - timedelta(days=30)
+    weight_history = (
+        db.query(WeightLog)
+        .filter(WeightLog.date >= cutoff)
+        .order_by(WeightLog.date)
+        .all()
+    )
+
+    weight_trend_str = "No weight data logged yet."
+    if weight_history:
+        first = weight_history[0].weight_lbs
+        last = weight_history[-1].weight_lbs
+        delta = last - first
+        weight_trend_str = f"{len(weight_history)} readings over 30 days. Start: {first} lbs → Current: {last} lbs (Δ {delta:+.1f} lbs)"
+
+    user_profile_str = f"""- Age: 46 (DOB: Nov 11, 1979)
+- Height: {(profile.height_inches or 68):.0f} inches
+- Current weight: {latest_weight.weight_lbs if latest_weight else 'unknown'} lbs
+- DEXA body fat: {latest_dexa.body_fat_pct if latest_dexa else 28.4}% (scan date: {str(latest_dexa.scan_date) if latest_dexa else '2026-03-13'})
+- Lean mass: {latest_dexa.lean_mass_lbs if latest_dexa else 123.9} lbs
+- Visceral fat: {latest_dexa.visceral_fat_lbs if latest_dexa else 1.38} lbs (target: <0.60 lbs)
+- Android/Gynoid ratio: {latest_dexa.ag_ratio if latest_dexa else 1.17} (target: 0.6-0.8)
+- VO2 Max: {latest_vo2.vo2max if latest_vo2 else 45.0} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else '2026-12-31'})
+- Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else '2026-12-31'}
+- Training: 4-day upper/lower split on Tonal, 2-3 cardio sessions/week
+- Diet: Vegetarian + eggs, South Indian, ~{profile.calorie_target if profile else 2200} kcal/day"""
+
+    # Try to pull live Garmin data
+    garmin_str = "Garmin data: Not connected (configure in Settings to enable sleep/HRV/body battery)."
+    try:
+        from services.garmin_service import garmin_service
+        if garmin_service.is_authenticated():
+            g = garmin_service.get_health_snapshot()
+            parts = []
+            if g.get("sleep_duration_hours"):
+                parts.append(f"Sleep: {g['sleep_duration_hours']}h")
+            if g.get("sleep_score"):
+                parts.append(f"sleep score {g['sleep_score']}")
+            if g.get("deep_sleep_min"):
+                parts.append(f"deep {g['deep_sleep_min']}min")
+            if g.get("rem_sleep_min"):
+                parts.append(f"REM {g['rem_sleep_min']}min")
+            if g.get("hrv_last_night"):
+                parts.append(f"HRV last night: {g['hrv_last_night']}ms")
+            if g.get("hrv_weekly_avg"):
+                parts.append(f"HRV weekly avg: {g['hrv_weekly_avg']}ms")
+            if g.get("body_battery"):
+                parts.append(f"Body battery: {g['body_battery']}")
+            if g.get("resting_hr"):
+                parts.append(f"Resting HR: {g['resting_hr']} bpm")
+            if g.get("daily_steps"):
+                parts.append(f"Steps: {g['daily_steps']:,}")
+            if parts:
+                garmin_str = "Garmin (yesterday/today): " + " | ".join(parts)
+    except Exception:
+        pass
+
+    health_data_str = f"""- Weight trend (30 days): {weight_trend_str}
+- DEXA scan date: {str(latest_dexa.scan_date) if latest_dexa else '2026-03-13'}
+- ALMI: {latest_dexa.almi if latest_dexa else 8.6} kg/m² (target: 9.5)
+- FFMI: {latest_dexa.ffmi if latest_dexa else 19.7} kg/m² (target: 21.0)
+- T-Score (bone density): {latest_dexa.t_score if latest_dexa else 0.50}
+- {garmin_str}"""
+
+    system = HEALTH_ADVISOR_SYSTEM_PROMPT.format(
+        user_profile=user_profile_str,
+        health_data=health_data_str,
+    )
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2500,
+        temperature=0.2,
+        system=system,
+        messages=[{
+            "role": "user",
+            "content": "Analyze my health data and provide specific, actionable insights following the Attia/Huberman framework. Be direct and data-driven."
+        }],
+    )
+
+    return response.content[0].text
+
+
+_HEVY_TOOLS = [
+    {
+        "name": "get_workouts",
+        "description": "Fetch recent Hevy workouts. Returns workouts in descending date order with title, exercises, sets, weight, reps, and volume.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max number of workouts to return (default 10)", "default": 10},
+                "start_date": {"type": "string", "description": "Filter from this date (YYYY-MM-DD)"},
+                "end_date": {"type": "string", "description": "Filter to this date (YYYY-MM-DD)"},
+            },
+        },
+    },
+    {
+        "name": "get_exercises",
+        "description": "Get a list of exercises the user has performed, sorted by frequency. Useful for finding exercise IDs for progress tracking.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "search_term": {"type": "string", "description": "Filter exercises by name"},
+                "exclude_unused": {"type": "boolean", "description": "Exclude exercises never performed", "default": True},
+            },
+        },
+    },
+    {
+        "name": "get_exercise_progress",
+        "description": "Track performance metrics (weight, reps, volume) for specific exercises over time.",
+        "input_schema": {
+            "type": "object",
+            "required": ["exercise_ids"],
+            "properties": {
+                "exercise_ids": {"type": "array", "items": {"type": "string"}, "description": "Exercise IDs to track"},
+                "limit": {"type": "integer", "description": "Max sessions to return", "default": 10},
+                "start_date": {"type": "string", "description": "From date (YYYY-MM-DD)"},
+                "end_date": {"type": "string", "description": "To date (YYYY-MM-DD)"},
+            },
+        },
+    },
+    {
+        "name": "get_routines",
+        "description": "Fetch the user's saved Hevy workout routines with all exercises and set configurations.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
+
+
+_hevy_client_instance = None
+
+
+def _get_hevy_client():
+    global _hevy_client_instance
+    from config import settings as cfg
+    from services.hevy_mcp_client import HevyMCPClient
+    if _hevy_client_instance is None:
+        _hevy_client_instance = HevyMCPClient(cfg.hevy_api_key)
+    return _hevy_client_instance
+
+
+def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
+    try:
+        from config import settings as cfg
+        if not cfg.hevy_api_key:
+            return json.dumps({"error": "HEVY_API_KEY not configured"})
+        c = _get_hevy_client()
+        # Pass raw call_tool result directly to Claude so it sees full response
+        tool_map = {
+            "get_workouts": lambda: c.call_tool("get-workouts", {
+                "limit": tool_input.get("limit", 10),
+                **({} if not tool_input.get("start_date") else {"startDate": tool_input["start_date"]}),
+                **({} if not tool_input.get("end_date") else {"endDate": tool_input["end_date"]}),
+            }),
+            "get_exercises": lambda: c.call_tool("get-exercises", {
+                "excludeUnused": tool_input.get("exclude_unused", True),
+                **({} if not tool_input.get("search_term") else {"searchTerm": tool_input["search_term"]}),
+            }),
+            "get_exercise_progress": lambda: c.call_tool("get-exercise-progress-by-ids", {
+                "exerciseIds": tool_input.get("exercise_ids", []),
+                "limit": tool_input.get("limit", 10),
+                **({} if not tool_input.get("start_date") else {"startDate": tool_input["start_date"]}),
+                **({} if not tool_input.get("end_date") else {"endDate": tool_input["end_date"]}),
+            }),
+            "get_routines": lambda: c.call_tool("get-routines", {}),
+        }
+        fn = tool_map.get(tool_name)
+        if not fn:
+            return json.dumps({"error": f"Unknown tool: {tool_name}"})
+        return json.dumps(fn())
+    except Exception as e:
+        global _hevy_client_instance
+        _hevy_client_instance = None  # Reset on error so next call spawns fresh
+        return json.dumps({"error": str(e)})
+
+
+def chat_with_coach(message: str, history: list, db: Session) -> str:
+    client = _get_client()
+    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
+    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
+
+    bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
+    vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
+
+    from config import settings as cfg
+    hevy_note = (
+        "You have access to Hevy workout tools. Use them proactively when asked about workouts, progress, or exercises."
+        if cfg.hevy_api_key
+        else "Hevy is not configured (no API key)."
+    )
+
+    system = COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2) + f"\n\n{hevy_note}"
+    messages = history[-20:] + [{"role": "user", "content": message}]
+    tools = _HEVY_TOOLS if cfg.hevy_api_key else []
+
+    # Tool-use loop: Claude may call Hevy tools multiple times before responding
+    for _ in range(5):  # max 5 tool rounds
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            temperature=0.4,
+            system=system,
+            messages=messages,
+            tools=tools if tools else anthropic.NOT_GIVEN,
+        )
+
+        if response.stop_reason != "tool_use":
+            # Final text response
+            for block in response.content:
+                if hasattr(block, "text"):
+                    return block.text
+            return ""
+
+        # Execute tool calls and feed results back
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                result_str = _call_hevy_tool(block.name, block.input)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_str,
+                })
+
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": tool_results})
+
+    # Fallback: ask Claude to respond without tools
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1500,
+        temperature=0.4,
+        system=system,
+        messages=messages,
+    )
+    for block in response.content:
+        if hasattr(block, "text"):
+            return block.text
+    return ""
