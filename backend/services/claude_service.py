@@ -247,7 +247,7 @@ def _training_plan_to_markdown(plan_data: dict) -> str:
     """Convert a training plan JSON dict to readable markdown for PDF export."""
     lines = []
     week = plan_data.get("week_start", "")
-    lines.append(f"# Training Plan — Week of {week}\n")
+    lines.append(f"# Training Plan - Week of {week}\n")
 
     if plan_data.get("weekly_overview"):
         lines.append(plan_data["weekly_overview"])
@@ -257,7 +257,7 @@ def _training_plan_to_markdown(plan_data: dict) -> str:
         day_name = day.get("day", "")
         day_type = day.get("type", "")
         focus = day.get("focus", "")
-        lines.append(f"## {day_name} — {day_type}\n")
+        lines.append(f"## {day_name} - {day_type}\n")
         if focus:
             lines.append(f"*{focus}*\n")
 
@@ -299,7 +299,7 @@ def _meal_plan_to_markdown(plan_data: dict) -> str:
     """Convert a meal plan JSON dict to a readable markdown string for PDF export."""
     lines = []
     week = plan_data.get("week_start", plan_data.get("week_label", ""))
-    lines.append(f"# Meal Plan — Week of {week}\n")
+    lines.append(f"# Meal Plan - Week of {week}\n")
 
     calorie_target = plan_data.get("daily_target_kcal") or plan_data.get("calorie_target")
     if calorie_target:

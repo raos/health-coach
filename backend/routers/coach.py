@@ -135,17 +135,21 @@ def email_training_plan(db: Session = Depends(get_db)):
         from datetime import datetime
         plan_data = json.loads(plan.plan_json)
         week = plan.week_start.strftime("%b %d, %Y") if plan.week_start else datetime.now().strftime("%b %d, %Y")
-        title = f"Training Plan — Week of {week}"
+        title = f"Training Plan - Week of {week}"
         markdown = _training_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
+        from config import settings as _s
+        recipients = _s.training_plan_recipients
+        if not recipients:
+            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_TRAINING_PLAN to .env.")
         send_plan_email(
-            to_addresses=["m.sandeep.rao@gmail.com"],
+            to_addresses=recipients,
             subject=title,
-            body_text=f"Hi Sandeep,\n\nYour training plan for the week of {week} is attached as a PDF.\n\nStay consistent!\n",
+            body_text=f"Hi,\n\nYour training plan for the week of {week} is attached as a PDF.\n\nStay consistent!\n",
             pdf_bytes=pdf_bytes,
             pdf_filename=f"training_plan_{week.replace(', ', '_').replace(' ', '_')}.pdf",
         )
-        return {"status": "sent", "to": ["m.sandeep.rao@gmail.com"]}
+        return {"status": "sent", "to": recipients}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

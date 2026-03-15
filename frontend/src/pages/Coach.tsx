@@ -36,15 +36,15 @@ function DayCard({ day }: { day: ParsedPlan["days"][0] }) {
     <div className={`border rounded-lg overflow-hidden ${isRest ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200"}`}>
       <button
         onClick={() => !isRest && setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left"
       >
-        <div>
-          <span className="font-semibold text-gray-900">{day.day}</span>
-          <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{day.type}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="font-semibold text-gray-900 whitespace-nowrap">{day.day}</span>
+          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">{day.type}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600 hidden sm:block">{day.focus}</span>
-          {!isRest && (expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />)}
+        <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+          <span className="text-sm text-gray-600 hidden sm:block truncate">{day.focus}</span>
+          {!isRest && (expanded ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />)}
         </div>
       </button>
 

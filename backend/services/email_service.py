@@ -57,81 +57,95 @@ class _PDF(FPDF):
     def __init__(self, title: str):
         super().__init__()
         self._doc_title = title
+        self.set_margins(left=15, top=10, right=15)
+        self.set_auto_page_break(auto=True, margin=15)
 
     def header(self):
+        self.set_x(self.l_margin)
         self.set_font("Helvetica", "B", 11)
         self.set_text_color(60, 60, 60)
-        self.cell(0, 8, self._doc_title, align="C")
+        self.cell(self.epw, 8, self._doc_title, align="C")
         self.ln(4)
         self.set_draw_color(200, 200, 200)
-        self.line(10, self.get_y(), 200, self.get_y())
-        self.ln(4)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(6)
+        self.set_x(self.l_margin)
 
     def footer(self):
         self.set_y(-12)
+        self.set_x(self.l_margin)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(160, 160, 160)
-        self.cell(0, 6, f"Page {self.page_no()}", align="C")
+        self.cell(self.epw, 6, f"Page {self.page_no()}", align="C")
 
 
 def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
     """Minimal markdown → fpdf2 rendering: headings, bullets, bold, plain text."""
-    pdf.set_auto_page_break(auto=True, margin=15)
+    w = pdf.epw  # effective page width; avoids "remaining width" calculation drift
 
     for raw_line in text.splitlines():
+        pdf.set_x(pdf.l_margin)  # always reset x before each line
         line = _sanitize(raw_line.rstrip())
 
         # H1
         if line.startswith("# "):
             pdf.ln(3)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "B", 14)
             pdf.set_text_color(30, 30, 30)
-            pdf.multi_cell(0, 7, line[2:].strip())
+            pdf.multi_cell(w, 7, line[2:].strip())
             pdf.ln(1)
 
         # H2
         elif line.startswith("## "):
             pdf.ln(3)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "B", 12)
             pdf.set_text_color(50, 50, 50)
-            pdf.multi_cell(0, 6, line[3:].strip())
+            pdf.multi_cell(w, 6, line[3:].strip())
+            pdf.set_x(pdf.l_margin)
             pdf.set_draw_color(220, 220, 220)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
             pdf.ln(2)
 
         # H3
         elif line.startswith("### "):
             pdf.ln(2)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "B", 11)
             pdf.set_text_color(70, 70, 70)
-            pdf.multi_cell(0, 6, line[4:].strip())
+            pdf.multi_cell(w, 6, line[4:].strip())
 
         # H4
         elif line.startswith("#### "):
             pdf.ln(1)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "BI", 10)
             pdf.set_text_color(80, 80, 80)
-            pdf.multi_cell(0, 5, line[5:].strip())
+            pdf.multi_cell(w, 5, line[5:].strip())
 
         # Bullet / list
         elif line.startswith("- ") or line.startswith("* "):
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
             content = line[2:].strip().replace("**", "")
-            pdf.multi_cell(0, 5, f"  *  {content}")
+            pdf.multi_cell(w, 5, f"  *  {content}")
 
         # Numbered list
         elif line and line[0].isdigit() and ". " in line[:4]:
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
             content = line.replace("**", "")
-            pdf.multi_cell(0, 5, f"  {content}")
+            pdf.multi_cell(w, 5, f"  {content}")
 
         # Horizontal rule
         elif line.startswith("---"):
             pdf.ln(2)
+            pdf.set_x(pdf.l_margin)
             pdf.set_draw_color(200, 200, 200)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
             pdf.ln(2)
 
         # Blank line
@@ -140,15 +154,16 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
 
         # Plain paragraph
         else:
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
             content = line.replace("**", "")
-            pdf.multi_cell(0, 5, content)
+            pdf.multi_cell(w, 5, content)
 
 
 def generate_pdf(title: str, content_md: str) -> bytes:
     """Convert a markdown string to a PDF and return raw bytes."""
-    pdf = _PDF(title=title)
+    pdf = _PDF(title=_sanitize(title))
     pdf.add_page()
     _render_markdown_to_pdf(pdf, content_md)
     buf = io.BytesIO()

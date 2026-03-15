@@ -99,10 +99,13 @@ def email_meal_plan(db: Session = Depends(get_db)):
         from datetime import datetime
         plan_data = json.loads(plan.plan_json)
         week = plan_data.get("week_start") or plan_data.get("week_label") or datetime.now().strftime("%Y-%m-%d")
-        title = f"Meal Plan — {week}"
+        title = f"Meal Plan - {week}"
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
-        recipients = ["m.sandeep.rao@gmail.com", "preetha.s.rao@gmail.com"]
+        from config import settings as _s
+        recipients = _s.meal_plan_recipients
+        if not recipients:
+            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_MEAL_PLAN to .env.")
         send_plan_email(
             to_addresses=recipients,
             subject=title,
