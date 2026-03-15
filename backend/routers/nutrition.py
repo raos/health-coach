@@ -98,7 +98,7 @@ def email_meal_plan(db: Session = Depends(get_db)):
         from services.claude_service import _meal_plan_to_markdown
         from datetime import datetime
         plan_data = json.loads(plan.plan_json)
-        week = plan_data.get("week_label") or datetime.now().strftime("Week of %b %d, %Y")
+        week = plan_data.get("week_start") or plan_data.get("week_label") or datetime.now().strftime("%Y-%m-%d")
         title = f"Meal Plan — {week}"
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)

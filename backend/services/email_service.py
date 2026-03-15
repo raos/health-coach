@@ -20,7 +20,38 @@ from fpdf import FPDF
 from config import settings
 
 
-# ── PDF generation ──────────────────────────────────────────────────────────
+# ── Character sanitization ───────────────────────────────────────────────────
+
+_UNICODE_REPLACEMENTS = {
+    "\u2014": " - ",   # em dash —
+    "\u2013": "-",     # en dash –
+    "\u2018": "'",     # left single quote '
+    "\u2019": "'",     # right single quote '
+    "\u201c": '"',     # left double quote "
+    "\u201d": '"',     # right double quote "
+    "\u2026": "...",   # ellipsis …
+    "\u00d7": "x",     # multiplication sign ×
+    "\u2022": "-",     # bullet •
+    "\u00b7": "-",     # middle dot ·
+    "\u00a0": " ",     # non-breaking space
+    "\u2192": "->",    # right arrow →
+    "\u2190": "<-",    # left arrow ←
+    "\u00b0": " deg",  # degree °
+    "\u00b1": "+/-",   # plus-minus ±
+    "\u00bc": "1/4",   # fraction 1/4
+    "\u00bd": "1/2",   # fraction 1/2
+    "\u00be": "3/4",   # fraction 3/4
+}
+
+def _sanitize(text: str) -> str:
+    """Replace Unicode characters not supported by Helvetica with ASCII equivalents."""
+    for char, replacement in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(char, replacement)
+    # Drop any remaining non-Latin-1 characters
+    return text.encode("latin-1", errors="ignore").decode("latin-1")
+
+
+# ── PDF generation ───────────────────────────────────────────────────────────
 
 class _PDF(FPDF):
     def __init__(self, title: str):
@@ -48,7 +79,7 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
     pdf.set_auto_page_break(auto=True, margin=15)
 
     for raw_line in text.splitlines():
-        line = raw_line.rstrip()
+        line = _sanitize(raw_line.rstrip())
 
         # H1
         if line.startswith("# "):
@@ -86,10 +117,8 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
         elif line.startswith("- ") or line.startswith("* "):
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
-            content = line[2:].strip()
-            # Strip inline bold markers for simplicity
-            content = content.replace("**", "")
-            pdf.multi_cell(0, 5, f"  \u2022  {content}")
+            content = line[2:].strip().replace("**", "")
+            pdf.multi_cell(0, 5, f"  *  {content}")
 
         # Numbered list
         elif line and line[0].isdigit() and ". " in line[:4]:

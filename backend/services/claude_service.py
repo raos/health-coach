@@ -298,44 +298,66 @@ def _training_plan_to_markdown(plan_data: dict) -> str:
 def _meal_plan_to_markdown(plan_data: dict) -> str:
     """Convert a meal plan JSON dict to a readable markdown string for PDF export."""
     lines = []
-    week = plan_data.get("week_label", "")
-    if week:
-        lines.append(f"# Meal Plan — {week}\n")
+    week = plan_data.get("week_start", plan_data.get("week_label", ""))
+    lines.append(f"# Meal Plan — Week of {week}\n")
 
-    calorie_target = plan_data.get("calorie_target")
-    macros = plan_data.get("weekly_macros", {})
-    if calorie_target or macros:
-        lines.append("## Weekly Targets\n")
-        if calorie_target:
-            lines.append(f"- **Calories:** {calorie_target} kcal/day")
-        if macros:
-            lines.append(f"- **Protein:** {macros.get('protein_g', '—')}g  |  **Carbs:** {macros.get('carbs_g', '—')}g  |  **Fat:** {macros.get('fat_g', '—')}g")
-        lines.append("")
+    calorie_target = plan_data.get("daily_target_kcal") or plan_data.get("calorie_target")
+    if calorie_target:
+        lines.append(f"**Daily Target:** {calorie_target} kcal\n")
 
     for day in plan_data.get("days", []):
-        lines.append(f"## {day.get('day', '')}\n")
-        meals = day.get("meals", {})
-        for meal_name in ["breakfast", "lunch", "snack", "dinner", "dessert"]:
-            meal = meals.get(meal_name)
-            if not meal:
-                continue
-            label = meal_name.capitalize()
+        day_name = day.get("day", "")
+        total_kcal = day.get("total_kcal", "")
+        total_p = day.get("total_protein_g", "")
+        lines.append(f"## {day_name}")
+        if total_kcal:
+            macro_parts = [f"{total_kcal} kcal"]
+            if total_p: macro_parts.append(f"P {total_p}g")
+            if day.get("total_carbs_g"): macro_parts.append(f"C {day['total_carbs_g']}g")
+            if day.get("total_fat_g"): macro_parts.append(f"F {day['total_fat_g']}g")
+            lines.append(f"*{' | '.join(macro_parts)}*")
+        lines.append("")
+
+        # meals is a list of meal objects
+        meals = day.get("meals", [])
+        if isinstance(meals, dict):
+            meals = list(meals.values())
+
+        for meal in meals:
+            meal_type = meal.get("meal_type", "").capitalize()
             name = meal.get("name", "")
-            lines.append(f"### {label}: {name}\n")
-            if meal.get("description"):
-                lines.append(meal["description"])
-            macros_m = meal.get("macros", {})
-            if macros_m:
-                parts = []
-                if macros_m.get("calories"): parts.append(f"{macros_m['calories']} kcal")
-                if macros_m.get("protein_g"): parts.append(f"P {macros_m['protein_g']}g")
-                if macros_m.get("carbs_g"): parts.append(f"C {macros_m['carbs_g']}g")
-                if macros_m.get("fat_g"): parts.append(f"F {macros_m['fat_g']}g")
-                if parts:
-                    lines.append(f"*{' | '.join(parts)}*")
-            if meal.get("recipe"):
-                lines.append(f"\n**Recipe:** {meal['recipe']}")
+            lines.append(f"### {meal_type}: {name}")
+
+            # Macros
+            parts = []
+            if meal.get("kcal"): parts.append(f"{meal['kcal']} kcal")
+            if meal.get("protein_g"): parts.append(f"P {meal['protein_g']}g")
+            if meal.get("carbs_g"): parts.append(f"C {meal['carbs_g']}g")
+            if meal.get("fat_g"): parts.append(f"F {meal['fat_g']}g")
+            if parts:
+                lines.append(f"*{' | '.join(parts)}*")
+
+            # Ingredients
+            ingredients = meal.get("ingredients", [])
+            if ingredients:
+                lines.append("")
+                lines.append("**Ingredients:**")
+                for ing in ingredients:
+                    lines.append(f"- {ing}")
+
+            # Recipe steps
+            steps = meal.get("recipe_steps", [])
+            if steps:
+                lines.append("")
+                lines.append("**Preparation:**")
+                for i, step in enumerate(steps, 1):
+                    lines.append(f"{i}. {step}")
+
+            if meal.get("prep_time_min"):
+                lines.append(f"*Prep time: {meal['prep_time_min']} min*")
+
             lines.append("")
+
         lines.append("")
 
     if plan_data.get("shopping_list"):
@@ -343,7 +365,7 @@ def _meal_plan_to_markdown(plan_data: dict) -> str:
         shopping = plan_data["shopping_list"]
         if isinstance(shopping, dict):
             for category, items in shopping.items():
-                lines.append(f"### {category}\n")
+                lines.append(f"### {category}")
                 if isinstance(items, list):
                     for item in items:
                         lines.append(f"- {item}")
