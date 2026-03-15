@@ -66,15 +66,6 @@ def get_sleep(for_date: Optional[date] = None):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.get("/hrv")
-def get_hrv(for_date: Optional[date] = None):
-    _require_auth()
-    try:
-        return garmin_service.get_hrv_data(for_date)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
 @router.get("/body-battery")
 def get_body_battery(for_date: Optional[date] = None):
     _require_auth()
@@ -120,15 +111,6 @@ def get_steps_range(days: int = 30):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.get("/hrv/range")
-def get_hrv_range(days: int = 30):
-    _require_auth()
-    try:
-        return garmin_service.get_hrv_range(days)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
 @router.get("/resting-hr/range")
 def get_resting_hr_range(days: int = 30):
     _require_auth()
@@ -136,6 +118,19 @@ def get_resting_hr_range(days: int = 30):
         return garmin_service.get_resting_hr_range(days)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/debug/raw")
+def debug_raw():
+    """Return raw API responses for HRV and resting HR to inspect field names."""
+    _require_auth()
+    from datetime import date, timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    client = garmin_service._get_client()
+    return {
+        "hrv_raw": client.get_hrv_data(yesterday),
+        "rhr_raw": client.get_rhr_day(yesterday),
+    }
 
 
 @router.get("/snapshot")

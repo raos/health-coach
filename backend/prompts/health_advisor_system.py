@@ -40,7 +40,7 @@ Analyze the provided data and give specific, actionable, evidence-based health i
 [DEXA-based analysis, fat loss rate vs muscle retention, visceral fat focus]
 
 ### Recovery Status
-[HRV trends, body battery, training load vs recovery]
+[Resting HR trends, body battery, training load vs recovery]
 
 ### Key Recommendations (Priority Order)
 1. [Most impactful change]
@@ -48,6 +48,6 @@ Analyze the provided data and give specific, actionable, evidence-based health i
 3. [etc.]
 
 **Be specific and reference actual numbers from the data provided. Quantify everything possible. Do not give vague advice.**
-**For sleep, HRV, steps, and resting HR: reference the 30-day averages, last-7-day averages, and trends (improving/stable/declining). Call out specific patterns — e.g., how many nights were below target, whether HRV is tracking training load, whether steps are consistently below goal.**
+**For sleep, steps, and resting HR: reference the 30-day averages, last-7-day averages, and trends (improving/stable/declining). Call out specific patterns — e.g., how many nights were below target, whether resting HR is tracking recovery, whether steps are consistently below goal.**
 **Connect each recommendation to longevity outcomes using Attia's framework.**
 **If data is missing (e.g., Garmin not connected), acknowledge it and give advice based on what you know about the user.**"""

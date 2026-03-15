@@ -356,7 +356,6 @@ def generate_health_insights(db: Session) -> str:
         if garmin_service.is_authenticated():
             sleep_range = garmin_service.get_sleep_range(30)
             steps_range = garmin_service.get_steps_range(30)
-            hrv_range = garmin_service.get_hrv_range(30)
             rhr_range = garmin_service.get_resting_hr_range(30)
 
             sections = []
@@ -401,21 +400,6 @@ def generate_health_insights(db: Session) -> str:
                     + f" Last 3 days: {last3_steps}"
                 )
                 sections.append(steps_section)
-
-            if hrv_range:
-                hrv_vals = [d["hrv"] for d in hrv_range]
-                avg_hrv = round(sum(hrv_vals) / len(hrv_vals))
-                recent_hrv = hrv_range[-7:]
-                recent_avg_hrv = round(sum(d["hrv"] for d in recent_hrv) / len(recent_hrv))
-                trend_hrv = "improving" if recent_avg_hrv > avg_hrv + 1 else "declining" if recent_avg_hrv < avg_hrv - 1 else "stable"
-                last3_hrv = ", ".join(str(d["hrv"]) + "ms" for d in hrv_range[-3:])
-                hrv_section = (
-                    f"HRV (last {len(hrv_range)} days): avg {avg_hrv}ms"
-                    + f", last-7-day avg {recent_avg_hrv}ms (trend: {trend_hrv})"
-                    + f". Range: {min(hrv_vals)}–{max(hrv_vals)}ms."
-                    + f" Last 3 nights: {last3_hrv}"
-                )
-                sections.append(hrv_section)
 
             if rhr_range:
                 rhr_vals = [d["rhr"] for d in rhr_range]

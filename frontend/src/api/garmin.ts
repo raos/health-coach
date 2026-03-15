@@ -14,12 +14,6 @@ export interface StepsDay {
   steps: number;
 }
 
-export interface HrvDay {
-  date: string;
-  hrv: number;
-  hrv_5day_avg: number | null;
-}
-
 export interface RestingHrDay {
   date: string;
   rhr: number;
@@ -32,11 +26,6 @@ export async function getSleepRange(days = 30): Promise<SleepDay[]> {
 
 export async function getStepsRange(days = 30): Promise<StepsDay[]> {
   const res = await client.get("/api/garmin/steps/range", { params: { days } });
-  return res.data;
-}
-
-export async function getHrvRange(days = 30): Promise<HrvDay[]> {
-  const res = await client.get("/api/garmin/hrv/range", { params: { days } });
   return res.data;
 }
 

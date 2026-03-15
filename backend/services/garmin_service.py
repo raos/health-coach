@@ -141,10 +141,6 @@ class GarminService:
         d = for_date or date.today() - timedelta(days=1)
         return self._get_client().get_sleep_data(d.isoformat())
 
-    def get_hrv_data(self, for_date: Optional[date] = None) -> dict:
-        d = for_date or date.today() - timedelta(days=1)
-        return self._get_client().get_hrv_data(d.isoformat())
-
     def get_body_battery(self, for_date: Optional[date] = None) -> list:
         d = for_date or date.today()
         return self._get_client().get_body_battery(d.isoformat())
@@ -156,10 +152,23 @@ class GarminService:
     def get_resting_heart_rate(self, for_date: Optional[date] = None) -> Optional[int]:
         try:
             d = for_date or date.today()
-            data = self._get_client().get_rhr_day(d.isoformat())
-            return data.get("restingHeartRate")
+            # get_heart_rates returns restingHeartRate as a top-level field
+            data = self._get_client().get_heart_rates(d.isoformat())
+            rhr = data.get("restingHeartRate")
+            if rhr:
+                return int(rhr)
+            # fallback: try the userstats endpoint
+            rhr_data = self._get_client().get_rhr_day(d.isoformat())
+            readings = (
+                rhr_data.get("allMetrics", {})
+                .get("metricsMap", {})
+                .get("WELLNESS_RESTING_HEART_RATE", [])
+            )
+            if readings:
+                return int(readings[0].get("value", 0)) or None
         except Exception:
-            return None
+            pass
+        return None
 
     def get_vo2max(self) -> Optional[float]:
         try:
@@ -208,26 +217,6 @@ class GarminService:
                 pass
         return results
 
-    def get_hrv_range(self, days: int = 30) -> list:
-        """HRV readings for the past N days, oldest first."""
-        results = []
-        for i in range(days, 0, -1):
-            d = date.today() - timedelta(days=i)
-            try:
-                hrv = self.get_hrv_data(d)
-                if hrv:
-                    summary = hrv.get("hrvSummary", {})
-                    last_night = summary.get("lastNight")
-                    if last_night:
-                        results.append({
-                            "date": d.isoformat(),
-                            "hrv": last_night,
-                            "hrv_5day_avg": summary.get("lastFive"),
-                        })
-            except Exception:
-                pass
-        return results
-
     def get_resting_hr_range(self, days: int = 30) -> list:
         """Resting heart rate for the past N days, oldest first."""
         results = []
@@ -259,13 +248,6 @@ class GarminService:
                 result["rem_sleep_min"] = round(
                     (daily.get("remSleepSeconds") or 0) / 60
                 )
-        except Exception:
-            pass
-        try:
-            hrv = self.get_hrv_data(yesterday)
-            if hrv:
-                result["hrv_weekly_avg"] = hrv.get("hrvSummary", {}).get("weeklyAvg")
-                result["hrv_last_night"] = hrv.get("hrvSummary", {}).get("lastNight")
         except Exception:
             pass
         try:

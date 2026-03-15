@@ -10,8 +10,8 @@ import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestInsights, generateInsights } from "../api/health";
-import { getSleepRange, getStepsRange, getHrvRange, getRestingHrRange } from "../api/garmin";
-import type { SleepDay, StepsDay, HrvDay, RestingHrDay } from "../api/garmin";
+import { getSleepRange, getStepsRange, getRestingHrRange } from "../api/garmin";
+import type { SleepDay, StepsDay, RestingHrDay } from "../api/garmin";
 import { getDexaHistory } from "../api/dexa";
 import type { HealthInsight, DexaScan } from "../types";
 
@@ -44,7 +44,6 @@ export default function HealthAdvisor() {
   const [days, setDays] = useState(30);
   const [sleepData, setSleepData] = useState<SleepDay[] | null>(null);
   const [stepsData, setStepsData] = useState<StepsDay[] | null>(null);
-  const [hrvData, setHrvData] = useState<HrvDay[] | null>(null);
   const [rhrData, setRhrData] = useState<RestingHrDay[] | null>(null);
   const [garminLoading, setGarminLoading] = useState(false);
   const [garminError, setGarminError] = useState("");
@@ -67,15 +66,13 @@ export default function HealthAdvisor() {
     setGarminLoading(true);
     setGarminError("");
     try {
-      const [sleep, steps, hrv, rhr] = await Promise.all([
+      const [sleep, steps, rhr] = await Promise.all([
         getSleepRange(days),
         getStepsRange(days),
-        getHrvRange(days),
         getRestingHrRange(days),
       ]);
       setSleepData(sleep);
       setStepsData(steps);
-      setHrvData(hrv);
       setRhrData(rhr);
     } catch (e: any) {
       const detail = e?.response?.data?.detail ?? "";
@@ -102,25 +99,13 @@ export default function HealthAdvisor() {
     }
   }
 
-  // Merge HRV and RHR onto one timeline
-  const heartData = (() => {
-    const map: Record<string, { date: string; hrv?: number; rhr?: number }> = {};
-    (hrvData ?? []).forEach(d => { map[d.date] = { date: d.date, hrv: d.hrv }; });
-    (rhrData ?? []).forEach(d => {
-      if (map[d.date]) map[d.date].rhr = d.rhr;
-      else map[d.date] = { date: d.date, rhr: d.rhr };
-    });
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-  })();
-
   const garminConnected = !garminError;
-  const hasAnyData = (sleepData?.length ?? 0) + (stepsData?.length ?? 0) + heartData.length > 0;
+  const hasAnyData = (sleepData?.length ?? 0) + (stepsData?.length ?? 0) + (rhrData?.length ?? 0) > 0;
 
   const avgSleepHours = avg(sleepData?.map(d => d.duration_hours) ?? []);
   const avgSleepScore = avg(sleepData?.map(d => d.score) ?? []);
   const avgSteps = avg(stepsData?.map(d => d.steps) ?? []);
-  const avgHrv = avg(heartData.map(d => d.hrv));
-  const avgRhr = avg(heartData.map(d => d.rhr));
+  const avgRhr = avg(rhrData?.map(d => d.rhr) ?? []);
 
   return (
     <PageWrapper
@@ -256,39 +241,29 @@ export default function HealthAdvisor() {
                   )}
                 </div>
 
-                {/* HRV + Resting HR */}
+                {/* Resting Heart Rate */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                      <HeartPulse className="w-4 h-4 text-red-500" /> HRV &amp; Resting Heart Rate
+                      <HeartPulse className="w-4 h-4 text-red-500" /> Resting Heart Rate
                     </p>
-                    <span className="text-xs text-gray-500 flex gap-3">
-                      {avgHrv != null && <>Avg HRV <span className="font-semibold text-purple-600">{avgHrv}ms</span></>}
-                      {avgRhr != null && <>Avg RHR <span className="font-semibold text-red-600">{avgRhr}bpm</span></>}
-                    </span>
+                    {avgRhr != null && (
+                      <span className="text-xs text-gray-500">
+                        Avg <span className="font-semibold text-red-600">{avgRhr} bpm</span>
+                      </span>
+                    )}
                   </div>
-                  {heartData.length === 0 ? (
-                    <GarminPlaceholder message="No HRV or resting HR data for this period." />
+                  {(rhrData?.length ?? 0) === 0 ? (
+                    <GarminPlaceholder message="No resting HR data for this period." />
                   ) : (
-                    <ResponsiveContainer width="100%" height={220}>
-                      <LineChart data={heartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={rhrData!} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                        <YAxis yAxisId="hrv" domain={["auto", "auto"]} tick={{ fontSize: 11 }} tickFormatter={v => `${v}ms`} />
-                        <YAxis yAxisId="rhr" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 11 }} tickFormatter={v => `${v}bpm`} />
-                        <Tooltip
-                          formatter={(v: any, name: string) => {
-                            if (name === "HRV") return [`${v}ms`, "HRV"];
-                            if (name === "Resting HR") return [`${v} bpm`, "Resting HR"];
-                            return [v, name];
-                          }}
-                          labelFormatter={shortDate}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        {avgHrv != null && <ReferenceLine yAxisId="hrv" y={avgHrv} stroke="#8b5cf6" strokeDasharray="4 4" label={{ value: `avg ${avgHrv}ms`, fontSize: 10, fill: "#8b5cf6", position: "insideTopLeft" }} />}
-                        {avgRhr != null && <ReferenceLine yAxisId="rhr" y={avgRhr} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `avg ${avgRhr}bpm`, fontSize: 10, fill: "#ef4444", position: "insideTopRight" }} />}
-                        <Line yAxisId="hrv" dataKey="hrv" name="HRV" stroke="#8b5cf6" dot={{ r: 3 }} strokeWidth={2} connectNulls />
-                        <Line yAxisId="rhr" dataKey="rhr" name="Resting HR" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} connectNulls />
+                        <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} tickFormatter={v => `${v}bpm`} />
+                        <Tooltip formatter={(v: any) => [`${v} bpm`, "Resting HR"]} labelFormatter={shortDate} />
+                        {avgRhr != null && <ReferenceLine y={avgRhr} stroke="#f97316" strokeDasharray="4 4" label={{ value: `avg ${avgRhr}bpm`, fontSize: 10, fill: "#f97316", position: "insideTopRight" }} />}
+                        <Line dataKey="rhr" name="Resting HR" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} connectNulls />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
