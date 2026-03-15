@@ -25,3 +25,8 @@ export async function regenerateDay(plan_id: number, day_of_week: string): Promi
   const res = await client.post("/api/nutrition/meal-plan/regenerate-day", { plan_id, day_of_week });
   return res.data;
 }
+
+export async function emailMealPlan() {
+  const res = await client.post("/api/nutrition/email-plan");
+  return res.data;
+}

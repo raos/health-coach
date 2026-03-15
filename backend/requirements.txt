@@ -9,3 +9,5 @@ python-multipart==0.0.12
 garminconnect==0.2.22
 sse-starlette==2.1.3
 PyJWT==2.10.1
+fpdf2==2.8.7
+markdown==3.10.2

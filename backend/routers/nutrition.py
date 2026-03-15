@@ -85,3 +85,33 @@ def regenerate_day(payload: RegenerateDayRequest, db: Session = Depends(get_db))
     db.commit()
     db.refresh(plan)
     return plan
+
+
+@router.post("/email-plan")
+def email_meal_plan(db: Session = Depends(get_db)):
+    """Generate a PDF of the latest meal plan and email it to Sandeep and Preetha."""
+    plan = db.query(MealPlan).filter(MealPlan.is_active == True).order_by(desc(MealPlan.generated_at)).first()
+    if not plan or not plan.plan_json:
+        raise HTTPException(status_code=404, detail="No meal plan found. Generate one first.")
+    try:
+        from services.email_service import generate_pdf, send_plan_email
+        from services.claude_service import _meal_plan_to_markdown
+        from datetime import datetime
+        plan_data = json.loads(plan.plan_json)
+        week = plan_data.get("week_label") or datetime.now().strftime("Week of %b %d, %Y")
+        title = f"Meal Plan — {week}"
+        markdown = _meal_plan_to_markdown(plan_data)
+        pdf_bytes = generate_pdf(title, markdown)
+        recipients = ["m.sandeep.rao@gmail.com", "preetha.s.rao@gmail.com"]
+        send_plan_email(
+            to_addresses=recipients,
+            subject=title,
+            body_text=f"Hi,\n\nThis week's meal plan is attached as a PDF.\n\nEnjoy!\n",
+            pdf_bytes=pdf_bytes,
+            pdf_filename=f"meal_plan_{week.replace(', ', '_').replace(' ', '_').replace(' ', '_')}.pdf",
+        )
+        return {"status": "sent", "to": recipients}
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")

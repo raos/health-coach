@@ -19,3 +19,8 @@ export async function syncActivities() {
   const res = await client.post("/api/coach/sync");
   return res.data;
 }
+
+export async function emailTrainingPlan() {
+  const res = await client.post("/api/coach/email-plan");
+  return res.data;
+}

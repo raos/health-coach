@@ -243,6 +243,123 @@ _DEFAULT_DINNER_PREFS = (
 )
 
 
+def _training_plan_to_markdown(plan_data: dict) -> str:
+    """Convert a training plan JSON dict to readable markdown for PDF export."""
+    lines = []
+    week = plan_data.get("week_start", "")
+    lines.append(f"# Training Plan — Week of {week}\n")
+
+    if plan_data.get("weekly_overview"):
+        lines.append(plan_data["weekly_overview"])
+        lines.append("")
+
+    for day in plan_data.get("days", []):
+        day_name = day.get("day", "")
+        day_type = day.get("type", "")
+        focus = day.get("focus", "")
+        lines.append(f"## {day_name} — {day_type}\n")
+        if focus:
+            lines.append(f"*{focus}*\n")
+
+        if day_type == "Rest":
+            lines.append("Rest and recovery day.\n")
+            continue
+
+        exercises = day.get("exercises", [])
+        for ex in exercises:
+            name = ex.get("name", "")
+            sets = ex.get("sets", "")
+            reps = ex.get("reps", "")
+            rest = ex.get("rest_seconds", "")
+            setup = ex.get("tonal_setup", "")
+            note = ex.get("coaching_note", "")
+            prog = ex.get("progression_note", "")
+
+            lines.append(f"### {name}\n")
+            lines.append(f"- **Sets × Reps:** {sets} × {reps}" + (f"  |  **Rest:** {rest}s" if rest else ""))
+            if setup:
+                lines.append(f"- **Tonal Setup:** {setup}")
+            if note:
+                lines.append(f"- **Coaching Note:** {note}")
+            if prog:
+                lines.append(f"- **Progression:** {prog}")
+            lines.append("")
+
+        if day.get("session_notes"):
+            lines.append(f"*Session Notes: {day['session_notes']}*\n")
+
+    if plan_data.get("weekly_notes"):
+        lines.append("## Weekly Notes\n")
+        lines.append(plan_data["weekly_notes"])
+
+    return "\n".join(lines)
+
+
+def _meal_plan_to_markdown(plan_data: dict) -> str:
+    """Convert a meal plan JSON dict to a readable markdown string for PDF export."""
+    lines = []
+    week = plan_data.get("week_label", "")
+    if week:
+        lines.append(f"# Meal Plan — {week}\n")
+
+    calorie_target = plan_data.get("calorie_target")
+    macros = plan_data.get("weekly_macros", {})
+    if calorie_target or macros:
+        lines.append("## Weekly Targets\n")
+        if calorie_target:
+            lines.append(f"- **Calories:** {calorie_target} kcal/day")
+        if macros:
+            lines.append(f"- **Protein:** {macros.get('protein_g', '—')}g  |  **Carbs:** {macros.get('carbs_g', '—')}g  |  **Fat:** {macros.get('fat_g', '—')}g")
+        lines.append("")
+
+    for day in plan_data.get("days", []):
+        lines.append(f"## {day.get('day', '')}\n")
+        meals = day.get("meals", {})
+        for meal_name in ["breakfast", "lunch", "snack", "dinner", "dessert"]:
+            meal = meals.get(meal_name)
+            if not meal:
+                continue
+            label = meal_name.capitalize()
+            name = meal.get("name", "")
+            lines.append(f"### {label}: {name}\n")
+            if meal.get("description"):
+                lines.append(meal["description"])
+            macros_m = meal.get("macros", {})
+            if macros_m:
+                parts = []
+                if macros_m.get("calories"): parts.append(f"{macros_m['calories']} kcal")
+                if macros_m.get("protein_g"): parts.append(f"P {macros_m['protein_g']}g")
+                if macros_m.get("carbs_g"): parts.append(f"C {macros_m['carbs_g']}g")
+                if macros_m.get("fat_g"): parts.append(f"F {macros_m['fat_g']}g")
+                if parts:
+                    lines.append(f"*{' | '.join(parts)}*")
+            if meal.get("recipe"):
+                lines.append(f"\n**Recipe:** {meal['recipe']}")
+            lines.append("")
+        lines.append("")
+
+    if plan_data.get("shopping_list"):
+        lines.append("## Shopping List\n")
+        shopping = plan_data["shopping_list"]
+        if isinstance(shopping, dict):
+            for category, items in shopping.items():
+                lines.append(f"### {category}\n")
+                if isinstance(items, list):
+                    for item in items:
+                        lines.append(f"- {item}")
+                lines.append("")
+        elif isinstance(shopping, list):
+            for item in shopping:
+                lines.append(f"- {item}")
+        lines.append("")
+
+    if plan_data.get("weekly_notes"):
+        lines.append("## Notes\n")
+        lines.append(plan_data["weekly_notes"])
+
+    return "\n".join(lines)
+
+
 def generate_meal_plan(
     db: Session,
     calorie_target: Optional[int] = None,

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Dumbbell, Send, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Dumbbell, Send, RefreshCw, ChevronDown, ChevronUp, Mail } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
-import { getLatestTrainingPlan, generateTrainingPlan } from "../api/coach";
+import { getLatestTrainingPlan, generateTrainingPlan, emailTrainingPlan } from "../api/coach";
 import type { TrainingPlan } from "../types";
 import { format, parseISO } from "date-fns";
 
@@ -103,6 +103,8 @@ export default function Coach() {
   const [parsedPlan, setParsedPlan] = useState<ParsedPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
   const [strengthDays, setStrengthDays] = useState(4);
   const [cardioDays, setCardioDays] = useState(2);
@@ -136,6 +138,21 @@ export default function Coach() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  async function handleEmail() {
+    setEmailing(true);
+    setEmailStatus("");
+    setError("");
+    try {
+      await emailTrainingPlan();
+      setEmailStatus("Sent!");
+      setTimeout(() => setEmailStatus(""), 3000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to send email. Check SMTP settings.");
+    } finally {
+      setEmailing(false);
+    }
+  }
 
   async function handleGenerate() {
     setGenerating(true);
@@ -198,6 +215,14 @@ export default function Coach() {
           >
             <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
             {generating ? "Generating..." : "Generate New Plan"}
+          </button>
+          <button
+            onClick={handleEmail}
+            disabled={emailing || !plan}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          >
+            <Mail className="w-4 h-4" />
+            {emailing ? "Sending..." : emailStatus || "Email Plan"}
           </button>
         </div>
       }

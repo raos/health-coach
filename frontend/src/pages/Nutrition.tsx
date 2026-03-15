@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2 } from "lucide-react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getLatestMealPlan, generateMealPlan, regenerateDay } from "../api/nutrition";
+import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan } from "../api/nutrition";
 import type { MealPlan } from "../types";
 
 interface Meal {
@@ -109,6 +109,8 @@ export default function Nutrition() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [regeneratingDay, setRegeneratingDay] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
   const [showShopping, setShowShopping] = useState(false);
   const [calorieTarget, setCalorieTarget] = useState(2200);
@@ -137,6 +139,21 @@ export default function Nutrition() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleEmail() {
+    setEmailing(true);
+    setEmailStatus("");
+    setError("");
+    try {
+      await emailMealPlan();
+      setEmailStatus("Sent!");
+      setTimeout(() => setEmailStatus(""), 3000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to send email. Check SMTP settings.");
+    } finally {
+      setEmailing(false);
+    }
+  }
 
   async function handleGenerate() {
     setGenerating(true);
@@ -205,6 +222,14 @@ export default function Nutrition() {
           >
             <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
             {generating ? "Generating..." : "Generate Meal Plan"}
+          </button>
+          <button
+            onClick={handleEmail}
+            disabled={emailing || !plan}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          >
+            <Mail className="w-4 h-4" />
+            {emailing ? "Sending..." : emailStatus || "Email Plan"}
           </button>
         </div>
       }
