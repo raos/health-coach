@@ -349,33 +349,89 @@ def generate_health_insights(db: Session) -> str:
 - Training: 4-day upper/lower split on Tonal, 2-3 cardio sessions/week
 - Diet: Vegetarian + eggs, South Indian, ~{profile.calorie_target if profile else 2200} kcal/day"""
 
-    # Try to pull live Garmin data
+    # Try to pull 30-day Garmin trend data
     garmin_str = "Garmin data: Not connected (configure in Settings to enable sleep/HRV/body battery)."
     try:
         from services.garmin_service import garmin_service
         if garmin_service.is_authenticated():
-            g = garmin_service.get_health_snapshot()
-            parts = []
-            if g.get("sleep_duration_hours"):
-                parts.append(f"Sleep: {g['sleep_duration_hours']}h")
-            if g.get("sleep_score"):
-                parts.append(f"sleep score {g['sleep_score']}")
-            if g.get("deep_sleep_min"):
-                parts.append(f"deep {g['deep_sleep_min']}min")
-            if g.get("rem_sleep_min"):
-                parts.append(f"REM {g['rem_sleep_min']}min")
-            if g.get("hrv_last_night"):
-                parts.append(f"HRV last night: {g['hrv_last_night']}ms")
-            if g.get("hrv_weekly_avg"):
-                parts.append(f"HRV weekly avg: {g['hrv_weekly_avg']}ms")
-            if g.get("body_battery"):
-                parts.append(f"Body battery: {g['body_battery']}")
-            if g.get("resting_hr"):
-                parts.append(f"Resting HR: {g['resting_hr']} bpm")
-            if g.get("daily_steps"):
-                parts.append(f"Steps: {g['daily_steps']:,}")
-            if parts:
-                garmin_str = "Garmin (yesterday/today): " + " | ".join(parts)
+            sleep_range = garmin_service.get_sleep_range(30)
+            steps_range = garmin_service.get_steps_range(30)
+            hrv_range = garmin_service.get_hrv_range(30)
+            rhr_range = garmin_service.get_resting_hr_range(30)
+
+            sections = []
+
+            if sleep_range:
+                durations = [d["duration_hours"] for d in sleep_range]
+                scores = [d["score"] for d in sleep_range if d.get("score")]
+                deep_vals = [d["deep_min"] for d in sleep_range if d.get("deep_min")]
+                rem_vals = [d["rem_min"] for d in sleep_range if d.get("rem_min")]
+                avg_dur = round(sum(durations) / len(durations), 1)
+                avg_score = round(sum(scores) / len(scores)) if scores else None
+                avg_deep = round(sum(deep_vals) / len(deep_vals)) if deep_vals else None
+                avg_rem = round(sum(rem_vals) / len(rem_vals)) if rem_vals else None
+                below_7 = sum(1 for d in durations if d < 7)
+                below_65 = sum(1 for d in durations if d < 6.5)
+                recent = sleep_range[-7:]
+                recent_avg = round(sum(d["duration_hours"] for d in recent) / len(recent), 1)
+                trend = "improving" if recent_avg > avg_dur else "declining" if recent_avg < avg_dur - 0.2 else "stable"
+                last3_sleep = ", ".join(str(d["duration_hours"]) + "h" for d in sleep_range[-3:])
+                sleep_section = (
+                    f"Sleep (last {len(sleep_range)} days): avg {avg_dur}h/night"
+                    + (f", avg score {avg_score}/100" if avg_score else "")
+                    + (f", avg deep {avg_deep}min" if avg_deep else "")
+                    + (f", avg REM {avg_rem}min" if avg_rem else "")
+                    + f". {below_7} nights <7h, {below_65} nights <6.5h."
+                    + f" Last-7-day avg: {recent_avg}h (trend: {trend})."
+                    + f" Last 3 nights: {last3_sleep}"
+                )
+                sections.append(sleep_section)
+
+            if steps_range:
+                steps_vals = [d["steps"] for d in steps_range]
+                avg_s = round(sum(steps_vals) / len(steps_vals))
+                recent_steps = steps_range[-7:]
+                recent_avg_s = round(sum(d["steps"] for d in recent_steps) / len(recent_steps))
+                over_10k = sum(1 for s in steps_vals if s >= 10000)
+                last3_steps = ", ".join(f"{d['steps']:,}" for d in steps_range[-3:])
+                steps_section = (
+                    f"Steps (last {len(steps_range)} days): avg {avg_s:,}/day"
+                    + f", last-7-day avg {recent_avg_s:,}/day"
+                    + f". {over_10k}/{len(steps_range)} days hit 10k goal."
+                    + f" Last 3 days: {last3_steps}"
+                )
+                sections.append(steps_section)
+
+            if hrv_range:
+                hrv_vals = [d["hrv"] for d in hrv_range]
+                avg_hrv = round(sum(hrv_vals) / len(hrv_vals))
+                recent_hrv = hrv_range[-7:]
+                recent_avg_hrv = round(sum(d["hrv"] for d in recent_hrv) / len(recent_hrv))
+                trend_hrv = "improving" if recent_avg_hrv > avg_hrv + 1 else "declining" if recent_avg_hrv < avg_hrv - 1 else "stable"
+                last3_hrv = ", ".join(str(d["hrv"]) + "ms" for d in hrv_range[-3:])
+                hrv_section = (
+                    f"HRV (last {len(hrv_range)} days): avg {avg_hrv}ms"
+                    + f", last-7-day avg {recent_avg_hrv}ms (trend: {trend_hrv})"
+                    + f". Range: {min(hrv_vals)}–{max(hrv_vals)}ms."
+                    + f" Last 3 nights: {last3_hrv}"
+                )
+                sections.append(hrv_section)
+
+            if rhr_range:
+                rhr_vals = [d["rhr"] for d in rhr_range]
+                avg_rhr = round(sum(rhr_vals) / len(rhr_vals))
+                recent_rhr = rhr_range[-7:]
+                recent_avg_rhr = round(sum(d["rhr"] for d in recent_rhr) / len(recent_rhr))
+                trend_rhr = "improving (lower)" if recent_avg_rhr < avg_rhr - 1 else "worsening (higher)" if recent_avg_rhr > avg_rhr + 1 else "stable"
+                rhr_section = (
+                    f"Resting HR (last {len(rhr_range)} days): avg {avg_rhr}bpm"
+                    + f", last-7-day avg {recent_avg_rhr}bpm (trend: {trend_rhr})"
+                    + f". Range: {min(rhr_vals)}–{max(rhr_vals)}bpm."
+                )
+                sections.append(rhr_section)
+
+            if sections:
+                garmin_str = "Garmin 30-day trends:\n" + "\n".join(f"- {s}" for s in sections)
     except Exception:
         pass
 
@@ -393,12 +449,12 @@ def generate_health_insights(db: Session) -> str:
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2500,
+        max_tokens=3500,
         temperature=0.2,
         system=system,
         messages=[{
             "role": "user",
-            "content": "Analyze my health data and provide specific, actionable insights following the Attia/Huberman framework. Be direct and data-driven."
+            "content": "Analyze my health data and provide specific, actionable insights following the Attia/Huberman framework. Use all the 30-day trend data provided — reference specific numbers, trends (improving/declining/stable), nights below targets, and recent patterns. Be direct and data-driven."
         }],
     )
 

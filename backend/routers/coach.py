@@ -106,8 +106,8 @@ def sync_activities(db: Session = Depends(get_db)):
         from services.strava_service import StravaService
         svc = StravaService(db)
         if svc.is_connected():
-            count = svc.sync_activities()
-            results["strava"] = f"synced {count} activities"
+            r = svc.sync_activities()
+            results["strava"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"
     except Exception as e:
         results["strava"] = f"error: {str(e)}"
 
@@ -115,8 +115,8 @@ def sync_activities(db: Session = Depends(get_db)):
     try:
         import services.hevy_service as hevy_svc
         if hevy_svc.is_configured():
-            count = hevy_svc.sync_workouts(db)
-            results["hevy"] = f"synced {count} workouts"
+            r = hevy_svc.sync_workouts(db)
+            results["hevy"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"
     except Exception as e:
         results["hevy"] = f"error: {str(e)}"
 

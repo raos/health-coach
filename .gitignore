@@ -5,6 +5,8 @@
 # Database
 backend/health.db
 *.db
+*.db-shm
+*.db-wal
 
 # Garmin session tokens (contains OAuth credentials)
 backend/garmin_session/

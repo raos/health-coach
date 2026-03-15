@@ -16,7 +16,7 @@ def _require_auth():
         )
     if not garmin_service.is_authenticated():
         raise HTTPException(
-            status_code=401,
+            status_code=503,
             detail="Garmin not authenticated. Go to Settings → Garmin Connect → Connect."
         )
 
@@ -98,6 +98,42 @@ def get_vo2max():
     _require_auth()
     try:
         return {"vo2max": garmin_service.get_vo2max()}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/sleep/range")
+def get_sleep_range(days: int = 30):
+    _require_auth()
+    try:
+        return garmin_service.get_sleep_range(days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/steps/range")
+def get_steps_range(days: int = 30):
+    _require_auth()
+    try:
+        return garmin_service.get_steps_range(days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/hrv/range")
+def get_hrv_range(days: int = 30):
+    _require_auth()
+    try:
+        return garmin_service.get_hrv_range(days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/resting-hr/range")
+def get_resting_hr_range(days: int = 30):
+    _require_auth()
+    try:
+        return garmin_service.get_resting_hr_range(days)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 

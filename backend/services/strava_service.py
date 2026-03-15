@@ -107,10 +107,10 @@ class StravaService:
 
         return {"connected": True, "athlete_id": token.athlete_id}
 
-    def sync_activities(self, per_page: int = 30) -> int:
+    def sync_activities(self, per_page: int = 30) -> dict:
         access_token = self._refresh_if_needed()
         if not access_token:
-            return 0
+            return {"added": 0, "updated": 0, "deleted": 0}
 
         with httpx.Client() as client:
             response = client.get(
@@ -122,32 +122,62 @@ class StravaService:
             response.raise_for_status()
             activities = response.json()
 
-        count = 0
+        from datetime import datetime
+        fetched_ids = {a["id"] for a in activities}
+
+        # Delete local activities that are no longer in Strava's latest page.
+        # Only remove within the time window of what we fetched to avoid
+        # deleting older activities that simply weren't included in this page.
+        if activities:
+            dates = [datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")) for a in activities]
+            window_start = min(dates)
+            stale = (
+                self.db.query(StravaActivity)
+                .filter(StravaActivity.start_date >= window_start)
+                .filter(StravaActivity.id.notin_(fetched_ids))
+                .all()
+            )
+            deleted = len(stale)
+            for row in stale:
+                self.db.delete(row)
+        else:
+            deleted = 0
+
+        added = updated = 0
         for a in activities:
+            start_date = datetime.fromisoformat(a["start_date"].replace("Z", "+00:00"))
             existing = self.db.query(StravaActivity).filter(StravaActivity.id == a["id"]).first()
             if existing:
-                continue
-
-            from datetime import datetime
-            start_date = datetime.fromisoformat(a["start_date"].replace("Z", "+00:00"))
-
-            activity = StravaActivity(
-                id=a["id"],
-                name=a.get("name", ""),
-                activity_type=a.get("type", ""),
-                start_date=start_date,
-                distance_m=a.get("distance"),
-                moving_time_s=a.get("moving_time"),
-                elapsed_time_s=a.get("elapsed_time"),
-                total_elevation=a.get("total_elevation_gain"),
-                average_hr=a.get("average_heartrate"),
-                max_hr=a.get("max_heartrate"),
-                average_speed=a.get("average_speed"),
-                kudos_count=a.get("kudos_count", 0),
-                raw_json=json.dumps(a),
-            )
-            self.db.add(activity)
-            count += 1
+                # Update mutable fields (name, kudos, etc. can change on Strava)
+                existing.name = a.get("name", "")
+                existing.activity_type = a.get("type", "")
+                existing.distance_m = a.get("distance")
+                existing.moving_time_s = a.get("moving_time")
+                existing.elapsed_time_s = a.get("elapsed_time")
+                existing.total_elevation = a.get("total_elevation_gain")
+                existing.average_hr = a.get("average_heartrate")
+                existing.max_hr = a.get("max_heartrate")
+                existing.average_speed = a.get("average_speed")
+                existing.kudos_count = a.get("kudos_count", 0)
+                existing.raw_json = json.dumps(a)
+                updated += 1
+            else:
+                self.db.add(StravaActivity(
+                    id=a["id"],
+                    name=a.get("name", ""),
+                    activity_type=a.get("type", ""),
+                    start_date=start_date,
+                    distance_m=a.get("distance"),
+                    moving_time_s=a.get("moving_time"),
+                    elapsed_time_s=a.get("elapsed_time"),
+                    total_elevation=a.get("total_elevation_gain"),
+                    average_hr=a.get("average_heartrate"),
+                    max_hr=a.get("max_heartrate"),
+                    average_speed=a.get("average_speed"),
+                    kudos_count=a.get("kudos_count", 0),
+                    raw_json=json.dumps(a),
+                ))
+                added += 1
 
         self.db.commit()
-        return count
+        return {"added": added, "updated": updated, "deleted": deleted}

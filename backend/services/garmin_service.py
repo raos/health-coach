@@ -170,6 +170,77 @@ class GarminService:
             pass
         return None
 
+    def get_sleep_range(self, days: int = 30) -> list:
+        """Sleep data for the past N days, oldest first."""
+        results = []
+        for i in range(days, 0, -1):
+            d = date.today() - timedelta(days=i)
+            try:
+                sleep = self.get_sleep_data(d)
+                if sleep:
+                    daily = sleep.get("dailySleepDTO", {})
+                    duration = round((daily.get("sleepTimeSeconds") or 0) / 3600, 1)
+                    if duration > 0:
+                        results.append({
+                            "date": d.isoformat(),
+                            "duration_hours": duration,
+                            "score": daily.get("sleepScores", {}).get("overall", {}).get("value"),
+                            "deep_min": round((daily.get("deepSleepSeconds") or 0) / 60),
+                            "rem_min": round((daily.get("remSleepSeconds") or 0) / 60),
+                            "light_min": round((daily.get("lightSleepSeconds") or 0) / 60),
+                        })
+            except Exception:
+                pass
+        return results
+
+    def get_steps_range(self, days: int = 30) -> list:
+        """Daily step counts for the past N days, oldest first."""
+        results = []
+        for i in range(days, 0, -1):
+            d = date.today() - timedelta(days=i)
+            try:
+                steps = self.get_steps(d)
+                if steps and isinstance(steps, list):
+                    total = sum(s.get("steps", 0) for s in steps)
+                    if total > 0:
+                        results.append({"date": d.isoformat(), "steps": total})
+            except Exception:
+                pass
+        return results
+
+    def get_hrv_range(self, days: int = 30) -> list:
+        """HRV readings for the past N days, oldest first."""
+        results = []
+        for i in range(days, 0, -1):
+            d = date.today() - timedelta(days=i)
+            try:
+                hrv = self.get_hrv_data(d)
+                if hrv:
+                    summary = hrv.get("hrvSummary", {})
+                    last_night = summary.get("lastNight")
+                    if last_night:
+                        results.append({
+                            "date": d.isoformat(),
+                            "hrv": last_night,
+                            "hrv_5day_avg": summary.get("lastFive"),
+                        })
+            except Exception:
+                pass
+        return results
+
+    def get_resting_hr_range(self, days: int = 30) -> list:
+        """Resting heart rate for the past N days, oldest first."""
+        results = []
+        for i in range(days, 0, -1):
+            d = date.today() - timedelta(days=i)
+            try:
+                rhr = self.get_resting_heart_rate(d)
+                if rhr:
+                    results.append({"date": d.isoformat(), "rhr": rhr})
+            except Exception:
+                pass
+        return results
+
     def get_health_snapshot(self) -> dict:
         """Return a dict of all available health metrics for use in AI context."""
         result = {}
