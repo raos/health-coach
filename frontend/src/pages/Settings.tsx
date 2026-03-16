@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, X, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { Check, X, ExternalLink, Loader2 } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import client from "../api/client";
 
@@ -202,24 +202,6 @@ export default function Settings() {
                 Learn more <ExternalLink className="w-3 h-3" />
               </a>
             </div>
-          </div>
-        </div>
-
-        {/* API Keys */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">API Configuration</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">All API keys are configured via the <code className="bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1.5 py-0.5 rounded text-xs">.env</code> file in the project root.</p>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-            <pre className="text-xs text-gray-600 dark:text-gray-300 font-mono">{`ANTHROPIC_API_KEY=sk-ant-...
-STRAVA_CLIENT_ID=your_client_id
-STRAVA_CLIENT_SECRET=your_secret
-GARMIN_EMAIL=your@email.com
-GARMIN_PASSWORD=yourpassword
-HEVY_API_KEY=your-hevy-api-key`}</pre>
-          </div>
-          <div className="flex items-start gap-2 mt-3">
-            <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">Never commit the .env file to version control. It is gitignored by default.</p>
           </div>
         </div>
 
