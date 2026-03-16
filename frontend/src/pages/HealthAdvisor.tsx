@@ -190,14 +190,14 @@ export default function HealthAdvisor() {
                         <YAxis yAxisId="hrs" domain={[0, 10]} tickFormatter={v => `${v}h`} tick={{ fontSize: 11 }} />
                         <YAxis yAxisId="score" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} hide />
                         <Tooltip
-                          formatter={(value: any, name: string) => {
+                          formatter={(value: any, name: any) => {
                             if (name === "Hours") return [`${value}h`, "Sleep"];
                             if (name === "Score") return [value, "Sleep Score"];
                             if (name === "Deep") return [`${value}m`, "Deep"];
                             if (name === "REM") return [`${value}m`, "REM"];
                             return [value, name];
                           }}
-                          labelFormatter={shortDate}
+                          labelFormatter={(label: any) => shortDate(String(label))}
                         />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
                         <ReferenceLine yAxisId="hrs" y={7.5} stroke="#818cf8" strokeDasharray="4 4" label={{ value: "7.5h goal", fontSize: 10, fill: "#818cf8" }} />
@@ -231,7 +231,7 @@ export default function HealthAdvisor() {
                         <YAxis tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} tick={{ fontSize: 11 }} />
                         <Tooltip
                           formatter={(v: any) => [v.toLocaleString(), "Steps"]}
-                          labelFormatter={shortDate}
+                          labelFormatter={(label: any) => shortDate(String(label))}
                         />
                         <ReferenceLine y={10000} stroke="#22c55e" strokeDasharray="4 4" label={{ value: "10k goal", fontSize: 10, fill: "#22c55e" }} />
                         {avgSteps != null && <ReferenceLine y={avgSteps} stroke="#f97316" strokeDasharray="4 4" label={{ value: `avg ${(avgSteps / 1000).toFixed(1)}k`, fontSize: 10, fill: "#f97316", position: "insideTopRight" }} />}
@@ -261,7 +261,7 @@ export default function HealthAdvisor() {
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                         <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} tickFormatter={v => `${v}bpm`} />
-                        <Tooltip formatter={(v: any) => [`${v} bpm`, "Resting HR"]} labelFormatter={shortDate} />
+                        <Tooltip formatter={(v: any) => [`${v} bpm`, "Resting HR"]} labelFormatter={(label: any) => shortDate(String(label))} />
                         {avgRhr != null && <ReferenceLine y={avgRhr} stroke="#f97316" strokeDasharray="4 4" label={{ value: `avg ${avgRhr}bpm`, fontSize: 10, fill: "#f97316", position: "insideTopRight" }} />}
                         <Line dataKey="rhr" name="Resting HR" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} connectNulls />
                       </LineChart>
