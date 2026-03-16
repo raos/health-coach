@@ -35,10 +35,10 @@ export default function QuickWeightLog({ onLogged }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
       <div className="flex items-center gap-2 mb-4">
         <Scale className="w-4 h-4 text-blue-600" />
-        <h3 className="font-semibold text-gray-900">Log Today's Weight</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Log Today's Weight</h3>
       </div>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="flex items-center gap-2">
@@ -48,9 +48,9 @@ export default function QuickWeightLog({ onLogged }: Props) {
             placeholder="Enter your weight"
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
           />
-          <span className="text-sm text-gray-500 font-medium">lbs</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">lbs</span>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <button

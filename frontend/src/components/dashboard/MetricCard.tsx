@@ -13,11 +13,11 @@ interface Props {
 }
 
 const colors = {
-  blue: "bg-blue-50 border-blue-200",
-  green: "bg-green-50 border-green-200",
-  orange: "bg-orange-50 border-orange-200",
-  red: "bg-red-50 border-red-200",
-  purple: "bg-purple-50 border-purple-200",
+  blue: "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700",
+  green: "bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-700",
+  orange: "bg-orange-50 border-orange-200 dark:bg-orange-900/30 dark:border-orange-700",
+  red: "bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-700",
+  purple: "bg-purple-50 border-purple-200 dark:bg-purple-900/30 dark:border-purple-700",
 };
 
 const iconColors = {
@@ -45,12 +45,12 @@ export default function MetricCard({
   return (
     <div className={`rounded-xl border p-5 ${colors[accentColor]}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-gray-600">{title}</span>
+        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</span>
         {icon && <span className={iconColors[accentColor]}>{icon}</span>}
       </div>
       <div className="flex items-baseline gap-1">
-        <span className="text-3xl font-bold text-gray-900">{value}</span>
-        {unit && <span className="text-sm text-gray-500 ml-1">{unit}</span>}
+        <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{value}</span>
+        {unit && <span className="text-sm text-gray-500 dark:text-gray-400 ml-1">{unit}</span>}
       </div>
       <div className="mt-2 flex items-center gap-1.5">
         {trend && (

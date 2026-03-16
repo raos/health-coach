@@ -7,8 +7,11 @@ import {
   Settings,
   Activity,
   LogOut,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { getStoredUser } from "../auth/ProtectedRoute";
+import { useDarkMode } from "../../hooks/useDarkMode";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -21,6 +24,7 @@ const navItems = [
 export default function Sidebar() {
   const navigate = useNavigate();
   const user = getStoredUser();
+  const { dark, toggle } = useDarkMode();
 
   function handleLogout() {
     localStorage.removeItem("auth_token");
@@ -84,6 +88,13 @@ export default function Sidebar() {
           <p className="text-xs text-gray-500">Goal: 18% BF by Dec 2026</p>
           <p className="text-xs text-gray-500 mt-0.5">VO₂ Max: 45 → 50+</p>
         </div>
+        <button
+          onClick={toggle}
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+        >
+          {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {dark ? "Light mode" : "Dark mode"}
+        </button>
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"

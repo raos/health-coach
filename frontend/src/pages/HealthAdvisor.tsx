@@ -28,7 +28,7 @@ function shortDate(iso: string) {
 
 function GarminPlaceholder({ message }: { message: string }) {
   return (
-    <div className="flex items-center justify-center h-40 text-sm text-gray-400">
+    <div className="flex items-center justify-center h-40 text-sm text-gray-400 dark:text-gray-500">
       {message}
     </div>
   );
@@ -129,9 +129,9 @@ export default function HealthAdvisor() {
         <div className="space-y-6">
 
           {/* ── Garmin charts ──────────────────────────────────────────── */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-blue-600" />
                 Garmin Trends
               </h3>
@@ -140,7 +140,7 @@ export default function HealthAdvisor() {
                   <button
                     key={d}
                     onClick={() => setDays(d)}
-                    className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${days === d ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                    className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${days === d ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
                   >
                     {d}d
                   </button>
@@ -151,8 +151,8 @@ export default function HealthAdvisor() {
             {garminLoading && <div className="flex justify-center py-10"><LoadingSpinner /></div>}
 
             {!garminLoading && garminError && (
-              <div className="flex flex-col items-center justify-center py-10 text-sm text-gray-400 gap-2">
-                <Activity className="w-8 h-8 text-gray-300" />
+              <div className="flex flex-col items-center justify-center py-10 text-sm text-gray-400 dark:text-gray-500 gap-2">
+                <Activity className="w-8 h-8 text-gray-300 dark:text-gray-600" />
                 <p>{garminError}</p>
                 <a href="/settings" className="text-blue-600 hover:underline text-xs">
                   Connect Garmin in Settings →
@@ -170,11 +170,11 @@ export default function HealthAdvisor() {
                 {/* Sleep */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                       <Moon className="w-4 h-4 text-indigo-500" /> Sleep
                     </p>
                     {avgSleepHours != null && (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         Avg <span className="font-semibold text-indigo-600">{avgSleepHours}h</span>
                         {avgSleepScore != null && <> · Score <span className="font-semibold text-amber-600">{avgSleepScore}</span></>}
                       </span>
@@ -212,11 +212,11 @@ export default function HealthAdvisor() {
                 {/* Steps */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                       <Footprints className="w-4 h-4 text-green-500" /> Daily Steps
                     </p>
                     {avgSteps != null && (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         Avg <span className="font-semibold text-green-600">{avgSteps.toLocaleString()} steps</span>
                       </span>
                     )}
@@ -244,11 +244,11 @@ export default function HealthAdvisor() {
                 {/* Resting Heart Rate */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                       <HeartPulse className="w-4 h-4 text-red-500" /> Resting Heart Rate
                     </p>
                     {avgRhr != null && (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         Avg <span className="font-semibold text-red-600">{avgRhr} bpm</span>
                       </span>
                     )}
@@ -274,9 +274,9 @@ export default function HealthAdvisor() {
           </div>
 
           {/* ── DEXA History ───────────────────────────────────────────── */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                 <HeartPulse className="w-4 h-4 text-purple-600" />
                 DEXA Scan History
               </h3>
@@ -287,7 +287,7 @@ export default function HealthAdvisor() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
+                  <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                     <th className="text-left pb-2 font-medium">Date</th>
                     <th className="text-right pb-2 font-medium">Weight</th>
                     <th className="text-right pb-2 font-medium">Body Fat</th>
@@ -298,17 +298,17 @@ export default function HealthAdvisor() {
                 </thead>
                 <tbody>
                   {dexaHistory.map((scan) => (
-                    <tr key={scan.id} className="border-b border-gray-50">
-                      <td className="py-2 font-medium text-gray-900">{format(parseISO(scan.scan_date), "MMM d, yyyy")}</td>
-                      <td className="py-2 text-right text-gray-700">{scan.total_weight_lbs} lbs</td>
+                    <tr key={scan.id} className="border-b border-gray-50 dark:border-gray-700">
+                      <td className="py-2 font-medium text-gray-900 dark:text-gray-100">{format(parseISO(scan.scan_date), "MMM d, yyyy")}</td>
+                      <td className="py-2 text-right text-gray-700 dark:text-gray-300">{scan.total_weight_lbs} lbs</td>
                       <td className="py-2 text-right">
                         <span className={`font-medium ${scan.body_fat_pct > 25 ? "text-orange-600" : scan.body_fat_pct > 20 ? "text-yellow-600" : "text-green-600"}`}>
                           {scan.body_fat_pct}%
                         </span>
                       </td>
-                      <td className="py-2 text-right text-gray-700">{scan.lean_mass_lbs} lbs</td>
-                      <td className="py-2 text-right text-gray-500">{scan.visceral_fat_lbs ? `${scan.visceral_fat_lbs} lbs` : "—"}</td>
-                      <td className="py-2 text-right text-gray-400 text-xs">{scan.facility || "—"}</td>
+                      <td className="py-2 text-right text-gray-700 dark:text-gray-300">{scan.lean_mass_lbs} lbs</td>
+                      <td className="py-2 text-right text-gray-500 dark:text-gray-400">{scan.visceral_fat_lbs ? `${scan.visceral_fat_lbs} lbs` : "—"}</td>
+                      <td className="py-2 text-right text-gray-400 dark:text-gray-500 text-xs">{scan.facility || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -318,44 +318,44 @@ export default function HealthAdvisor() {
 
           {/* ── Key metrics ────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-              <p className="text-xs text-purple-600 font-medium uppercase tracking-wide">Current BF%</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{dexaHistory[0]?.body_fat_pct ?? 28.4}%</p>
-              <p className="text-xs text-gray-500 mt-0.5">Goal: 18% by Dec 2026</p>
+            <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 rounded-xl p-4">
+              <p className="text-xs text-purple-600 dark:text-purple-400 font-medium uppercase tracking-wide">Current BF%</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.body_fat_pct ?? 28.4}%</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 18% by Dec 2026</p>
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <p className="text-xs text-green-600 font-medium uppercase tracking-wide">VO₂ Max</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">45</p>
-              <p className="text-xs text-gray-500 mt-0.5">Goal: 50+ by Dec 2026</p>
+            <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded-xl p-4">
+              <p className="text-xs text-green-600 dark:text-green-400 font-medium uppercase tracking-wide">VO₂ Max</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">45</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 50+ by Dec 2026</p>
             </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">Lean Mass</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{dexaHistory[0]?.lean_mass_lbs ?? 123.9} lbs</p>
-              <p className="text-xs text-gray-500 mt-0.5">Goal: 130+ lbs</p>
+            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4">
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium uppercase tracking-wide">Lean Mass</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.lean_mass_lbs ?? 123.9} lbs</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 130+ lbs</p>
             </div>
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-              <p className="text-xs text-orange-600 font-medium uppercase tracking-wide">Visceral Fat</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{dexaHistory[0]?.visceral_fat_lbs ?? 1.38} lbs</p>
-              <p className="text-xs text-gray-500 mt-0.5">Target: &lt;0.60 lbs</p>
+            <div className="bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 rounded-xl p-4">
+              <p className="text-xs text-orange-600 dark:text-orange-400 font-medium uppercase tracking-wide">Visceral Fat</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.visceral_fat_lbs ?? 1.38} lbs</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Target: &lt;0.60 lbs</p>
             </div>
           </div>
 
           {/* ── AI Insights ────────────────────────────────────────────── */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                 <Brain className="w-4 h-4 text-purple-600" />
                 Health Insights
               </h3>
               {insight && (
-                <p className="text-xs text-gray-400">Generated {format(parseISO(insight.generated_at), "MMM d, yyyy")}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Generated {format(parseISO(insight.generated_at), "MMM d, yyyy")}</p>
               )}
             </div>
 
             {!insight ? (
               <div className="text-center py-8">
-                <Brain className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm mb-4">No insights yet. Generate your personalized health analysis.</p>
+                <Brain className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">No insights yet. Generate your personalized health analysis.</p>
                 <button onClick={handleGenerate} disabled={generating} className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50">
                   {generating ? "Analyzing..." : "Generate Insights"}
                 </button>

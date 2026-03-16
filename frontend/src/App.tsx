@@ -22,7 +22,7 @@ export default function App() {
           path="/*"
           element={
             <ProtectedRoute>
-              <div className="flex min-h-screen bg-gray-50" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
+              <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
                 <Sidebar />
                 <main className="flex-1 overflow-hidden">
                   <Routes>

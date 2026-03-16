@@ -37,9 +37,9 @@ export default function WeightChart({ data }: Props) {
   const max = Math.max(...filtered.map((d) => d.weight)) + 2;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-900">Weight Trend</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Weight Trend</h3>
         <div className="flex gap-1">
           {PERIODS.map(({ label, days }) => (
             <button
@@ -48,7 +48,7 @@ export default function WeightChart({ data }: Props) {
               className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
                 period === days
                   ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               }`}
             >
               {label}
@@ -58,7 +58,7 @@ export default function WeightChart({ data }: Props) {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
+        <div className="h-48 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
           No weight data for this period. Log your weight to see trends.
         </div>
       ) : (
