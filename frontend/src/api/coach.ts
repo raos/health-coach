@@ -24,3 +24,8 @@ export async function emailTrainingPlan() {
   const res = await client.post("/api/coach/email-plan");
   return res.data;
 }
+
+export async function chatWithCoach(message: string, sessionId: string): Promise<{ response: string }> {
+  const res = await client.post("/api/coach/chat", { message, session_id: sessionId });
+  return res.data;
+}

@@ -4,7 +4,7 @@ import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
-import { getLatestTrainingPlan, generateTrainingPlan, emailTrainingPlan } from "../api/coach";
+import { getLatestTrainingPlan, generateTrainingPlan, emailTrainingPlan, chatWithCoach } from "../api/coach";
 import type { TrainingPlan } from "../types";
 import { format, parseISO } from "date-fns";
 
@@ -177,12 +177,7 @@ export default function Coach() {
     setChatLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/api/coach/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg, session_id: "default" }),
-      });
-      const data = await response.json();
+      const data = await chatWithCoach(msg, "default");
       setMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, I couldn't connect to the coaching service. Make sure the backend is running." }]);
