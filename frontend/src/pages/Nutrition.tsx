@@ -4,6 +4,7 @@ import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan } from "../api/nutrition";
+import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
 interface Meal {
@@ -129,6 +130,13 @@ export default function Nutrition() {
   );
 
   useEffect(() => {
+    // Load profile to set default calorie target
+    getProfile()
+      .then((p) => {
+        if (p.calorie_target) setCalorieTarget(p.calorie_target);
+      })
+      .catch(() => {});
+
     getLatestMealPlan()
       .then((p) => {
         if (p) {

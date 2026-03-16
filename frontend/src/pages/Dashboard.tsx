@@ -10,13 +10,16 @@ import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress } from "../api/dashboard";
 import { syncActivities } from "../api/coach";
-import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType } from "../types";
+import { getProfile } from "../api/profile";
+import { convertWeight, weightUnit } from "../hooks/useMeasurement";
+import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile } from "../types";
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [weightTrend, setWeightTrend] = useState<WeightLog[]>([]);
   const [activities, setActivities] = useState<ActivityFeedItem[]>([]);
   const [goalProgress, setGoalProgress] = useState<GoalProgressType | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -42,6 +45,10 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    getProfile().then(setProfile).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
@@ -57,10 +64,14 @@ export default function Dashboard() {
     }
   }
 
-  const currentWeight = summary?.latest_weight?.weight_lbs ?? summary?.latest_dexa?.total_weight_lbs;
+  const measurementSystem = profile?.measurement_system ?? "imperial";
+  const currentWeightRaw = summary?.latest_weight?.weight_lbs ?? summary?.latest_dexa?.total_weight_lbs;
+  const currentWeight = currentWeightRaw != null ? convertWeight(currentWeightRaw, measurementSystem) : undefined;
   const currentBF = summary?.latest_dexa?.body_fat_pct ?? 28.4;
   const currentVO2 = summary?.latest_vo2max?.vo2max ?? 45;
-  const currentLean = summary?.latest_dexa?.lean_mass_lbs ?? 123.9;
+  const currentLeanRaw = summary?.latest_dexa?.lean_mass_lbs ?? 123.9;
+  const currentLean = convertWeight(currentLeanRaw, measurementSystem);
+  const wUnit = weightUnit(measurementSystem);
 
   return (
     <PageWrapper
@@ -92,8 +103,8 @@ export default function Dashboard() {
             <MetricCard
               title="Current Weight"
               value={currentWeight?.toFixed(1) ?? "—"}
-              unit="lbs"
-              subtitle="Goal: 165 lbs"
+              unit={wUnit}
+              subtitle={measurementSystem === "metric" ? "Goal: 75 kg" : "Goal: 165 lbs"}
               icon={<Scale className="w-5 h-5" />}
               accentColor="blue"
             />
@@ -115,8 +126,8 @@ export default function Dashboard() {
             <MetricCard
               title="Lean Mass"
               value={currentLean?.toFixed(1) ?? "—"}
-              unit="lbs"
-              subtitle="Goal: 130+ lbs"
+              unit={wUnit}
+              subtitle={measurementSystem === "metric" ? "Goal: 59+ kg" : "Goal: 130+ lbs"}
               icon={<Dumbbell className="w-5 h-5" />}
               accentColor="purple"
             />

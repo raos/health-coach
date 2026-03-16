@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import TrainingPlan, CoachConversation
+from database.models import TrainingPlan, CoachConversation, UserProfile
 from schemas.coach import TrainingPlanResponse, ChatMessage, GenerateTrainingPlanRequest
 from services import claude_service
 
@@ -139,9 +139,11 @@ def email_training_plan(db: Session = Depends(get_db)):
         markdown = _training_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
         from config import settings as _s
-        recipients = _s.training_plan_recipients
+        profile = db.query(UserProfile).first()
+        profile_recipients = [e.strip() for e in (profile.training_plan_recipients or "").split(",") if e.strip()] if profile else []
+        recipients = profile_recipients or _s.training_plan_recipients
         if not recipients:
-            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_TRAINING_PLAN to .env.")
+            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_TRAINING_PLAN to .env or set training_plan_recipients in your profile.")
         send_plan_email(
             to_addresses=recipients,
             subject=title,

@@ -31,7 +31,25 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate_user_profile_columns()
     _seed_initial_data()
+
+
+def _migrate_user_profile_columns():
+    """Add new UserProfile columns if they don't exist (SQLite migration)."""
+    with engine.connect() as conn:
+        existing = [row[1] for row in conn.execute(text("PRAGMA table_info(user_profile)")).fetchall()]
+        new_cols = {
+            "email": "TEXT DEFAULT ''",
+            "measurement_system": "TEXT DEFAULT 'imperial'",
+            "training_device": "TEXT DEFAULT 'tonal'",
+            "training_plan_recipients": "TEXT DEFAULT ''",
+            "meal_plan_recipients": "TEXT DEFAULT ''",
+        }
+        for col, definition in new_cols.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE user_profile ADD COLUMN {col} {definition}"))
+        conn.commit()
 
 
 def _seed_initial_data():

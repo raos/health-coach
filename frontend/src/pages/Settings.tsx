@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Check, X, ExternalLink, Loader2 } from "lucide-react";
+import { Check, X, ExternalLink, Loader2, Save } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import client from "../api/client";
+import { getProfile, updateProfile } from "../api/profile";
+import type { UserProfile } from "../types";
 
 export default function Settings() {
   const [stravaStatus, setStravaStatus] = useState<{ connected: boolean; athlete_name?: string } | null>(null);
@@ -11,6 +13,15 @@ export default function Settings() {
   const [garminMfaPending, setGarminMfaPending] = useState(false);
   const [garminOtp, setGarminOtp] = useState("");
   const [garminError, setGarminError] = useState("");
+
+  // Profile state
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileForm, setProfileForm] = useState<Partial<UserProfile>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  // Height input in the selected unit
+  const [heightInput, setHeightInput] = useState("");
 
   function refreshGarminStatus() {
     client.get("/api/garmin/status")
@@ -28,7 +39,73 @@ export default function Settings() {
       .catch(() => {});
 
     refreshGarminStatus();
+
+    getProfile()
+      .then((p) => {
+        setProfile(p);
+        setProfileForm(p);
+        setHeightInput(formatHeightInput(p.height_inches, p.measurement_system));
+      })
+      .catch(() => {});
   }, []);
+
+  function formatHeightInput(inches: number | null, system: "imperial" | "metric"): string {
+    if (!inches) return "";
+    if (system === "metric") {
+      return String(Math.round(inches * 2.54));
+    }
+    return String(Math.round(inches));
+  }
+
+  function parseHeightToInches(value: string, system: "imperial" | "metric"): number | null {
+    const n = parseFloat(value);
+    if (isNaN(n)) return null;
+    if (system === "metric") {
+      return Math.round((n / 2.54) * 10) / 10;
+    }
+    return n;
+  }
+
+  function handleFieldChange(field: keyof UserProfile, value: unknown) {
+    setProfileForm((prev) => ({ ...prev, [field]: value }));
+    setSaveSuccess(false);
+    setSaveError("");
+  }
+
+  function handleMeasurementSystemChange(system: "imperial" | "metric") {
+    const currentInches = profileForm.height_inches ?? profile?.height_inches ?? null;
+    setProfileForm((prev) => ({ ...prev, measurement_system: system }));
+    setHeightInput(formatHeightInput(currentInches, system));
+    setSaveSuccess(false);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveError("");
+    setSaveSuccess(false);
+
+    const system = profileForm.measurement_system ?? "imperial";
+    const heightInches = parseHeightToInches(heightInput, system);
+
+    const payload: Partial<UserProfile> = {
+      ...profileForm,
+      height_inches: heightInches ?? profileForm.height_inches ?? undefined,
+    };
+
+    try {
+      const updated = await updateProfile(payload);
+      setProfile(updated);
+      setProfileForm(updated);
+      setHeightInput(formatHeightInput(updated.height_inches, updated.measurement_system));
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (e: any) {
+      setSaveError(e?.response?.data?.detail || "Failed to save profile.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function connectGarmin() {
     setGarminConnecting(true);
@@ -67,6 +144,18 @@ export default function Settings() {
     const res = await client.get("/api/strava/auth/url");
     window.location.href = res.data.url;
   }
+
+  const measurementSystem = (profileForm.measurement_system ?? "imperial") as "imperial" | "metric";
+  const trainingDevice = (profileForm.training_device ?? "tonal") as "tonal" | "gym" | "bodyweight";
+  const heightUnit = measurementSystem === "metric" ? "cm" : "inches";
+
+  const pillBase = "px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer";
+  const pillActive = "bg-blue-600 text-white";
+  const pillInactive = "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600";
+
+  const inputClass =
+    "w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400";
+  const labelClass = "block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1";
 
   return (
     <PageWrapper title="Settings" subtitle="Configure integrations and your profile">
@@ -205,18 +294,211 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Profile */}
+        {/* Profile — editable form */}
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Your Profile</h2>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><p className="text-gray-500 dark:text-gray-400">Name</p><p className="font-medium text-gray-900 dark:text-gray-100">Sandeep Rao</p></div>
-            <div><p className="text-gray-500 dark:text-gray-400">Date of Birth</p><p className="font-medium text-gray-900 dark:text-gray-100">Nov 11, 1979 (Age 46)</p></div>
-            <div><p className="text-gray-500 dark:text-gray-400">Body Fat Goal</p><p className="font-medium text-gray-900 dark:text-gray-100">18% by Dec 31, 2026</p></div>
-            <div><p className="text-gray-500 dark:text-gray-400">VO₂ Max Goal</p><p className="font-medium text-gray-900 dark:text-gray-100">50+ by Dec 31, 2026</p></div>
-            <div><p className="text-gray-500 dark:text-gray-400">Calorie Target</p><p className="font-medium text-gray-900 dark:text-gray-100">~2,200 kcal/day</p></div>
-            <div><p className="text-gray-500 dark:text-gray-400">Training Device</p><p className="font-medium text-gray-900 dark:text-gray-100">Tonal (cable-based)</p></div>
-          </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">To update profile settings, edit the user_profile table in health.db or use the /api/profile endpoint.</p>
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-5">Your Profile</h2>
+
+          {!profile ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500">Loading profile…</p>
+          ) : (
+            <form onSubmit={handleSave} className="space-y-6">
+              {/* Personal Details */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Personal Details</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Name</label>
+                    <input
+                      type="text"
+                      value={profileForm.name ?? ""}
+                      onChange={(e) => handleFieldChange("name", e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Email</label>
+                    <input
+                      type="email"
+                      value={profileForm.email ?? ""}
+                      onChange={(e) => handleFieldChange("email", e.target.value)}
+                      className={inputClass}
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Date of Birth</label>
+                    <input
+                      type="date"
+                      value={profileForm.dob ?? ""}
+                      onChange={(e) => handleFieldChange("dob", e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Height ({heightUnit})</label>
+                    <input
+                      type="number"
+                      value={heightInput}
+                      onChange={(e) => { setHeightInput(e.target.value); setSaveSuccess(false); }}
+                      step={measurementSystem === "metric" ? "1" : "0.5"}
+                      min={measurementSystem === "metric" ? "100" : "48"}
+                      max={measurementSystem === "metric" ? "250" : "96"}
+                      className={inputClass}
+                      placeholder={measurementSystem === "metric" ? "e.g. 173" : "e.g. 68"}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Goals */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Goals</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className={labelClass}>Body Fat Goal (%)</label>
+                    <input
+                      type="number"
+                      value={profileForm.bf_goal_pct ?? ""}
+                      onChange={(e) => handleFieldChange("bf_goal_pct", e.target.value ? parseFloat(e.target.value) : null)}
+                      step="0.1"
+                      min="5"
+                      max="50"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>VO&#8322; Max Goal</label>
+                    <input
+                      type="number"
+                      value={profileForm.vo2max_goal ?? ""}
+                      onChange={(e) => handleFieldChange("vo2max_goal", e.target.value ? parseFloat(e.target.value) : null)}
+                      step="1"
+                      min="20"
+                      max="90"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Goal Date</label>
+                    <input
+                      type="date"
+                      value={profileForm.goal_date ?? ""}
+                      onChange={(e) => handleFieldChange("goal_date", e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Preferences */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Preferences</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className={labelClass}>Measurement System</label>
+                    <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden w-fit">
+                      {(["imperial", "metric"] as const).map((sys) => (
+                        <button
+                          key={sys}
+                          type="button"
+                          onClick={() => handleMeasurementSystemChange(sys)}
+                          className={`${pillBase} ${measurementSystem === sys ? pillActive : pillInactive}`}
+                        >
+                          {sys.charAt(0).toUpperCase() + sys.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Training Device</label>
+                    <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden w-fit">
+                      {([
+                        { value: "tonal", label: "Tonal" },
+                        { value: "gym", label: "Gym" },
+                        { value: "bodyweight", label: "Bodyweight" },
+                      ] as const).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => { handleFieldChange("training_device", opt.value); }}
+                          className={`${pillBase} ${trainingDevice === opt.value ? pillActive : pillInactive}`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Nutrition */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Nutrition</h3>
+                <div className="w-40">
+                  <label className={labelClass}>Daily Calorie Target (kcal)</label>
+                  <input
+                    type="number"
+                    value={profileForm.calorie_target ?? ""}
+                    onChange={(e) => handleFieldChange("calorie_target", e.target.value ? parseInt(e.target.value, 10) : null)}
+                    step="50"
+                    min="1000"
+                    max="5000"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              {/* Email Recipients */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Email Recipients</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className={labelClass}>Training Plan Recipients</label>
+                    <input
+                      type="text"
+                      value={profileForm.training_plan_recipients ?? ""}
+                      onChange={(e) => handleFieldChange("training_plan_recipients", e.target.value)}
+                      className={inputClass}
+                      placeholder="email1@example.com, email2@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Meal Plan Recipients</label>
+                    <input
+                      type="text"
+                      value={profileForm.meal_plan_recipients ?? ""}
+                      onChange={(e) => handleFieldChange("meal_plan_recipients", e.target.value)}
+                      className={inputClass}
+                      placeholder="email1@example.com, email2@example.com"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    Comma-separated email addresses. Leave blank to use EMAIL_RECIPIENTS_* from .env
+                  </p>
+                </div>
+              </div>
+
+              {/* Save button */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+                {saveSuccess && (
+                  <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
+                    <Check className="w-4 h-4" /> Saved
+                  </span>
+                )}
+                {saveError && (
+                  <span className="text-sm text-red-600">{saveError}</span>
+                )}
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </PageWrapper>

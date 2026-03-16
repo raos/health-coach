@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import MealPlan
+from database.models import MealPlan, UserProfile
 from schemas.nutrition import MealPlanResponse, RegenerateDayRequest, GenerateMealPlanRequest
 from services import claude_service
 
@@ -24,10 +24,16 @@ def generate_meal_plan(payload: GenerateMealPlanRequest = GenerateMealPlanReques
     if not __import__("config").settings.anthropic_api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured. Add it to your .env file.")
 
+    # If calorie_target not provided (None or 0), fall back to profile value
+    calorie_target = payload.calorie_target
+    if not calorie_target:
+        profile = db.query(UserProfile).first()
+        calorie_target = profile.calorie_target if profile and profile.calorie_target else None
+
     try:
         plan_data = claude_service.generate_meal_plan(
             db,
-            calorie_target=payload.calorie_target,
+            calorie_target=calorie_target,
             breakfast_prefs=payload.breakfast_prefs,
             lunch_prefs=payload.lunch_prefs,
             dinner_prefs=payload.dinner_prefs,
@@ -103,9 +109,11 @@ def email_meal_plan(db: Session = Depends(get_db)):
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
         from config import settings as _s
-        recipients = _s.meal_plan_recipients
+        profile = db.query(UserProfile).first()
+        profile_recipients = [e.strip() for e in (profile.meal_plan_recipients or "").split(",") if e.strip()] if profile else []
+        recipients = profile_recipients or _s.meal_plan_recipients
         if not recipients:
-            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_MEAL_PLAN to .env.")
+            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_MEAL_PLAN to .env or set meal_plan_recipients in your profile.")
         send_plan_email(
             to_addresses=recipients,
             subject=title,

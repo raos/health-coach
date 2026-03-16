@@ -128,6 +128,22 @@ def _build_weekly_schedule(strength_days: int, cardio_days: int, rest_days: int)
     return schedule
 
 
+def _device_instruction(training_device: str) -> str:
+    if training_device == "gym":
+        return "Exercises use standard gym equipment: barbells, dumbbells, cables, machines, and bodyweight."
+    elif training_device == "bodyweight":
+        return "ALL exercises must be bodyweight only — no equipment required."
+    else:  # default: tonal
+        return "ALL exercises must be Tonal-compatible (cable-based only, 0-200 lb resistance). No free barbells, no dumbbells."
+
+
+def _measurement_instruction(measurement_system: str) -> str:
+    if measurement_system == "metric":
+        return "Always respond using metric units (kg, cm, km). Convert all measurements to metric."
+    else:  # default: imperial
+        return "Always respond using imperial units (lbs, inches, miles)."
+
+
 def generate_training_plan(
     db: Session,
     strength_days: int = 4,
@@ -137,11 +153,17 @@ def generate_training_plan(
     client = _get_client()
     current_stats = _build_current_stats(db)
     recent_training = _build_recent_training(db)
+    profile = db.query(UserProfile).first()
+    training_device = (profile.training_device if profile and profile.training_device else "tonal")
+    measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
+
+    device_note = _device_instruction(training_device)
+    measurement_note = _measurement_instruction(measurement_system)
 
     system = COACH_SYSTEM_PROMPT.format(
         current_stats=current_stats,
         recent_training=recent_training,
-    )
+    ) + f"\n\n## Equipment Constraint\n{device_note}\n\n## Units\n{measurement_note}"
 
     today = date.today()
     days_to_monday = (7 - today.weekday()) % 7 or 7
@@ -417,12 +439,15 @@ def generate_meal_plan(
     else:
         user_prefs_section += f"## Dinner Preferences\n{_DEFAULT_DINNER_PREFS}"
 
+    measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
+    measurement_note = _measurement_instruction(measurement_system)
+
     system = NUTRITION_SYSTEM_PROMPT.format(
         calorie_context=calorie_context,
         calorie_target=calorie_target,
         breakfast_context=breakfast_context,
         user_preferences=user_prefs_section,
-    )
+    ) + f"\n\n## Units\n{measurement_note}"
 
     today = date.today()
     days_to_monday = (7 - today.weekday()) % 7 or 7
@@ -565,10 +590,13 @@ def generate_health_insights(db: Session) -> str:
 - T-Score (bone density): {latest_dexa.t_score if latest_dexa else 0.50}
 - {garmin_str}"""
 
+    measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
+    measurement_note = _measurement_instruction(measurement_system)
+
     system = HEALTH_ADVISOR_SYSTEM_PROMPT.format(
         user_profile=user_profile_str,
         health_data=health_data_str,
-    )
+    ) + f"\n\n## Units\n{measurement_note}"
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
@@ -681,9 +709,12 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
     client = _get_client()
     latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
     latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
+    profile = db.query(UserProfile).first()
 
     bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
+    training_device = (profile.training_device if profile and profile.training_device else "tonal")
+    measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
 
     from config import settings as cfg
     hevy_note = (
@@ -692,7 +723,15 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         else "Hevy is not configured (no API key)."
     )
 
-    system = COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2) + f"\n\n{hevy_note}"
+    device_note = _device_instruction(training_device)
+    measurement_note = _measurement_instruction(measurement_system)
+
+    system = (
+        COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2)
+        + f"\n\n{hevy_note}"
+        + f"\n\n## Equipment Constraint\n{device_note}"
+        + f"\n\n## Units\n{measurement_note}"
+    )
     messages = history[-20:] + [{"role": "user", "content": message}]
     tools = _HEVY_TOOLS if cfg.hevy_api_key else []
 

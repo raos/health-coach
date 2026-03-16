@@ -88,12 +88,17 @@ export interface GoalProgress {
 export interface UserProfile {
   id: number;
   name: string;
-  dob: string;
-  height_inches: number;
-  bf_goal_pct: number;
-  vo2max_goal: number;
-  goal_date: string;
-  calorie_target: number;
+  dob: string | null;
+  height_inches: number | null;
+  email: string;
+  bf_goal_pct: number | null;
+  vo2max_goal: number | null;
+  goal_date: string | null;
+  calorie_target: number | null;
+  measurement_system: "imperial" | "metric";
+  training_device: "tonal" | "gym" | "bodyweight";
+  training_plan_recipients: string;
+  meal_plan_recipients: string;
 }
 
 export interface TrainingPlan {

@@ -167,4 +167,9 @@ class UserProfile(Base):
     vo2max_goal = Column(Float, default=50.0)
     goal_date = Column(Date, default=date(2026, 12, 31))
     calorie_target = Column(Integer, default=2200)
+    email = Column(String(200), default="")
+    measurement_system = Column(String(10), default="imperial")   # "imperial" or "metric"
+    training_device = Column(String(20), default="tonal")         # "tonal", "gym", "bodyweight"
+    training_plan_recipients = Column(Text, default="")           # comma-separated emails
+    meal_plan_recipients = Column(Text, default="")               # comma-separated emails
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
