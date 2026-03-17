@@ -664,9 +664,9 @@ _hevy_client_instance = None
 def _get_hevy_client():
     global _hevy_client_instance
     from config import settings as cfg
-    from services.hevy_mcp_client import HevyMCPClient
+    from services.hevy_api_client import HevyAPIClient
     if _hevy_client_instance is None:
-        _hevy_client_instance = HevyMCPClient(cfg.hevy_api_key)
+        _hevy_client_instance = HevyAPIClient(cfg.hevy_api_key)
     return _hevy_client_instance
 
 
