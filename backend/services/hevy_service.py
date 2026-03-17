@@ -1,5 +1,5 @@
 """
-Hevy service — uses the @vreippainen/hevy-mcp-server MCP server.
+Hevy service — calls the Hevy REST API directly via HevyAPIClient.
 Requires HEVY_API_KEY in .env (get it from https://api.hevyapp.com/docs/#/)
 """
 import json
@@ -10,21 +10,21 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database.models import HevyWorkout, HevyExerciseSet
-from services.hevy_mcp_client import HevyMCPClient
+from services.hevy_api_client import HevyAPIClient
 
-_client: Optional[HevyMCPClient] = None
+_client: Optional[HevyAPIClient] = None
 
 
 def is_configured() -> bool:
     return bool(settings.hevy_api_key)
 
 
-def _get_client() -> HevyMCPClient:
+def _get_client() -> HevyAPIClient:
     global _client
     if not is_configured():
         raise RuntimeError("HEVY_API_KEY not set in .env")
     if _client is None:
-        _client = HevyMCPClient(settings.hevy_api_key)
+        _client = HevyAPIClient(settings.hevy_api_key)
     return _client
 
 
