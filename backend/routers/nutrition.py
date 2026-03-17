@@ -108,20 +108,16 @@ def email_meal_plan(db: Session = Depends(get_db)):
         title = f"Meal Plan - {week}"
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
-        from config import settings as _s
         profile = db.query(UserProfile).first()
-        profile_recipients = [e.strip() for e in (profile.meal_plan_recipients or "").split(",") if e.strip()] if profile else []
-        recipients = profile_recipients or _s.meal_plan_recipients
-        if not recipients:
-            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_MEAL_PLAN to .env or set meal_plan_recipients in your profile.")
+        to_address = (profile.email or "").strip() if profile else ""
         send_plan_email(
-            to_addresses=recipients,
+            to_address=to_address,
             subject=title,
             body_text=f"Hi,\n\nThis week's meal plan is attached as a PDF.\n\nEnjoy!\n",
             pdf_bytes=pdf_bytes,
-            pdf_filename=f"meal_plan_{week.replace(', ', '_').replace(' ', '_').replace(' ', '_')}.pdf",
+            pdf_filename=f"meal_plan_{week.replace(', ', '_').replace(' ', '_')}.pdf",
         )
-        return {"status": "sent", "to": recipients}
+        return {"status": "sent", "to": to_address}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

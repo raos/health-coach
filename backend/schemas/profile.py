@@ -15,8 +15,6 @@ class UserProfileResponse(BaseModel):
     calorie_target: Optional[int]
     measurement_system: str = "imperial"
     training_device: str = "tonal"
-    training_plan_recipients: str = ""
-    meal_plan_recipients: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -32,5 +30,3 @@ class UserProfileUpdate(BaseModel):
     calorie_target: Optional[int] = None
     measurement_system: Optional[str] = None
     training_device: Optional[str] = None
-    training_plan_recipients: Optional[str] = None
-    meal_plan_recipients: Optional[str] = None

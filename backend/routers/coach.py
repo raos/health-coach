@@ -138,20 +138,16 @@ def email_training_plan(db: Session = Depends(get_db)):
         title = f"Training Plan - Week of {week}"
         markdown = _training_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
-        from config import settings as _s
         profile = db.query(UserProfile).first()
-        profile_recipients = [e.strip() for e in (profile.training_plan_recipients or "").split(",") if e.strip()] if profile else []
-        recipients = profile_recipients or _s.training_plan_recipients
-        if not recipients:
-            raise RuntimeError("No recipients configured. Add EMAIL_RECIPIENTS_TRAINING_PLAN to .env or set training_plan_recipients in your profile.")
+        to_address = (profile.email or "").strip() if profile else ""
         send_plan_email(
-            to_addresses=recipients,
+            to_address=to_address,
             subject=title,
             body_text=f"Hi,\n\nYour training plan for the week of {week} is attached as a PDF.\n\nStay consistent!\n",
             pdf_bytes=pdf_bytes,
             pdf_filename=f"training_plan_{week.replace(', ', '_').replace(' ', '_')}.pdf",
         )
-        return {"status": "sent", "to": recipients}
+        return {"status": "sent", "to": to_address}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

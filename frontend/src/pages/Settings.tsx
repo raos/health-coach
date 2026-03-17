@@ -448,36 +448,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Email Recipients */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Email Recipients</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className={labelClass}>Training Plan Recipients</label>
-                    <input
-                      type="text"
-                      value={profileForm.training_plan_recipients ?? ""}
-                      onChange={(e) => handleFieldChange("training_plan_recipients", e.target.value)}
-                      className={inputClass}
-                      placeholder="email1@example.com, email2@example.com"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Meal Plan Recipients</label>
-                    <input
-                      type="text"
-                      value={profileForm.meal_plan_recipients ?? ""}
-                      onChange={(e) => handleFieldChange("meal_plan_recipients", e.target.value)}
-                      className={inputClass}
-                      placeholder="email1@example.com, email2@example.com"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Comma-separated email addresses. Leave blank to use EMAIL_RECIPIENTS_* from .env
-                  </p>
-                </div>
-              </div>
-
               {/* Save button */}
               <div className="flex items-center gap-3 pt-2">
                 <button

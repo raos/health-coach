@@ -41,22 +41,8 @@ class Settings(BaseSettings):
     hevy_email: str = ""
     hevy_password: str = ""
 
-    # Email (SMTP)
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""   # Gmail App Password (16 chars, no spaces)
-    email_from: str = ""      # Defaults to smtp_user if blank
-    email_recipients_training_plan: str = ""  # Comma-separated; training plan PDF recipients
-    email_recipients_meal_plan: str = ""      # Comma-separated; meal plan PDF recipients
-
-    @property
-    def training_plan_recipients(self) -> List[str]:
-        return [e.strip() for e in self.email_recipients_training_plan.split(",") if e.strip()]
-
-    @property
-    def meal_plan_recipients(self) -> List[str]:
-        return [e.strip() for e in self.email_recipients_meal_plan.split(",") if e.strip()]
+    # Email (Resend)
+    resend_api_key: str = ""  # From resend.com — required for PDF email delivery
 
     # Database
     database_url: str = "sqlite:///./health.db"

@@ -1,20 +1,11 @@
 """
-Email service — generates a PDF from markdown and sends it via SMTP.
+Email service — generates a PDF from markdown and sends it via Resend.
 Configure in .env:
-  SMTP_HOST=smtp.gmail.com
-  SMTP_PORT=587
-  SMTP_USER=your@gmail.com
-  SMTP_PASSWORD=<16-char Gmail App Password>
-  EMAIL_FROM=your@gmail.com
+  RESEND_API_KEY=re_...
 """
 import io
-import smtplib
-import textwrap
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from typing import List
 
+import resend
 from fpdf import FPDF
 
 from config import settings
@@ -47,7 +38,6 @@ def _sanitize(text: str) -> str:
     """Replace Unicode characters not supported by Helvetica with ASCII equivalents."""
     for char, replacement in _UNICODE_REPLACEMENTS.items():
         text = text.replace(char, replacement)
-    # Drop any remaining non-Latin-1 characters
     return text.encode("latin-1", errors="ignore").decode("latin-1")
 
 
@@ -81,13 +71,12 @@ class _PDF(FPDF):
 
 def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
     """Minimal markdown → fpdf2 rendering: headings, bullets, bold, plain text."""
-    w = pdf.epw  # effective page width; avoids "remaining width" calculation drift
+    w = pdf.epw
 
     for raw_line in text.splitlines():
-        pdf.set_x(pdf.l_margin)  # always reset x before each line
+        pdf.set_x(pdf.l_margin)
         line = _sanitize(raw_line.rstrip())
 
-        # H1
         if line.startswith("# "):
             pdf.ln(3)
             pdf.set_x(pdf.l_margin)
@@ -96,7 +85,6 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             pdf.multi_cell(w, 7, line[2:].strip())
             pdf.ln(1)
 
-        # H2
         elif line.startswith("## "):
             pdf.ln(3)
             pdf.set_x(pdf.l_margin)
@@ -108,7 +96,6 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
             pdf.ln(2)
 
-        # H3
         elif line.startswith("### "):
             pdf.ln(2)
             pdf.set_x(pdf.l_margin)
@@ -116,7 +103,6 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             pdf.set_text_color(70, 70, 70)
             pdf.multi_cell(w, 6, line[4:].strip())
 
-        # H4
         elif line.startswith("#### "):
             pdf.ln(1)
             pdf.set_x(pdf.l_margin)
@@ -124,7 +110,6 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             pdf.set_text_color(80, 80, 80)
             pdf.multi_cell(w, 5, line[5:].strip())
 
-        # Bullet / list
         elif line.startswith("- ") or line.startswith("* "):
             pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
@@ -132,15 +117,12 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             content = line[2:].strip().replace("**", "")
             pdf.multi_cell(w, 5, f"  *  {content}")
 
-        # Numbered list
         elif line and line[0].isdigit() and ". " in line[:4]:
             pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
-            content = line.replace("**", "")
-            pdf.multi_cell(w, 5, f"  {content}")
+            pdf.multi_cell(w, 5, f"  {line.replace('**', '')}")
 
-        # Horizontal rule
         elif line.startswith("---"):
             pdf.ln(2)
             pdf.set_x(pdf.l_margin)
@@ -148,17 +130,14 @@ def _render_markdown_to_pdf(pdf: _PDF, text: str) -> None:
             pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
             pdf.ln(2)
 
-        # Blank line
         elif line == "":
             pdf.ln(2)
 
-        # Plain paragraph
         else:
             pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(60, 60, 60)
-            content = line.replace("**", "")
-            pdf.multi_cell(w, 5, content)
+            pdf.multi_cell(w, 5, line.replace("**", ""))
 
 
 def generate_pdf(title: str, content_md: str) -> bytes:
@@ -174,32 +153,30 @@ def generate_pdf(title: str, content_md: str) -> bytes:
 # ── Email sending ────────────────────────────────────────────────────────────
 
 def send_plan_email(
-    to_addresses: List[str],
+    to_address: str,
     subject: str,
     body_text: str,
     pdf_bytes: bytes,
     pdf_filename: str,
 ) -> None:
-    """Send an email with a PDF attachment via SMTP."""
-    if not settings.smtp_user or not settings.smtp_password:
-        raise RuntimeError(
-            "SMTP not configured. Add SMTP_USER and SMTP_PASSWORD to .env "
-            "(use a Gmail App Password if you have 2FA enabled)."
-        )
+    """Send an email with a PDF attachment via Resend."""
+    if not settings.resend_api_key:
+        raise RuntimeError("RESEND_API_KEY not configured. Add it to your .env file.")
+    if not to_address:
+        raise RuntimeError("No recipient email. Set your email in Settings → Profile.")
 
-    msg = MIMEMultipart()
-    msg["From"] = settings.email_from or settings.smtp_user
-    msg["To"] = ", ".join(to_addresses)
-    msg["Subject"] = subject
+    resend.api_key = settings.resend_api_key
 
-    msg.attach(MIMEText(body_text, "plain"))
-
-    attachment = MIMEApplication(pdf_bytes, _subtype="pdf")
-    attachment.add_header("Content-Disposition", "attachment", filename=pdf_filename)
-    msg.attach(attachment)
-
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(settings.smtp_user, settings.smtp_password)
-        server.sendmail(settings.smtp_user, to_addresses, msg.as_string())
+    params: resend.Emails.SendParams = {
+        "from": "HealthCoach <onboarding@resend.dev>",
+        "to": [to_address],
+        "subject": subject,
+        "text": body_text,
+        "attachments": [
+            {
+                "filename": pdf_filename,
+                "content": list(pdf_bytes),
+            }
+        ],
+    }
+    resend.Emails.send(params)
