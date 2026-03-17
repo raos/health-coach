@@ -13,8 +13,12 @@ from typing import Optional
 
 from config import settings
 
-# Directory next to backend/ root for persisting garth session tokens
-_TOKEN_DIR = os.path.join(os.path.dirname(__file__), "..", "garmin_session")
+# Use GARMIN_SESSION_DIR env var if set (Railway: /data/garmin_session),
+# otherwise fall back to a local directory beside the backend root.
+_TOKEN_DIR = os.environ.get(
+    "GARMIN_SESSION_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "garmin_session"),
+)
 
 
 class GarminService:

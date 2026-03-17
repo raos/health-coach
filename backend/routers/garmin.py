@@ -54,7 +54,7 @@ def verify_mfa(payload: MfaRequest):
         garmin_service.submit_mfa(payload.otp)
         return {"status": "ok"}
     except RuntimeError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/sleep")
