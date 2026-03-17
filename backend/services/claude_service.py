@@ -678,22 +678,22 @@ def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
         c = _get_hevy_client()
         # Pass raw call_tool result directly to Claude so it sees full response
         tool_map = {
-            "get_workouts": lambda: c.call_tool("get-workouts", {
-                "limit": tool_input.get("limit", 10),
-                **({} if not tool_input.get("start_date") else {"startDate": tool_input["start_date"]}),
-                **({} if not tool_input.get("end_date") else {"endDate": tool_input["end_date"]}),
-            }),
-            "get_exercises": lambda: c.call_tool("get-exercises", {
-                "excludeUnused": tool_input.get("exclude_unused", True),
-                **({} if not tool_input.get("search_term") else {"searchTerm": tool_input["search_term"]}),
-            }),
-            "get_exercise_progress": lambda: c.call_tool("get-exercise-progress-by-ids", {
-                "exerciseIds": tool_input.get("exercise_ids", []),
-                "limit": tool_input.get("limit", 10),
-                **({} if not tool_input.get("start_date") else {"startDate": tool_input["start_date"]}),
-                **({} if not tool_input.get("end_date") else {"endDate": tool_input["end_date"]}),
-            }),
-            "get_routines": lambda: c.call_tool("get-routines", {}),
+            "get_workouts": lambda: c.get_workouts(
+                limit=tool_input.get("limit", 10),
+                start_date=tool_input.get("start_date"),
+                end_date=tool_input.get("end_date"),
+            ),
+            "get_exercises": lambda: c.get_exercises(
+                search_term=tool_input.get("search_term"),
+                exclude_unused=tool_input.get("exclude_unused", True),
+            ),
+            "get_exercise_progress": lambda: c.get_exercise_progress(
+                exercise_ids=tool_input.get("exercise_ids", []),
+                limit=tool_input.get("limit", 10),
+                start_date=tool_input.get("start_date"),
+                end_date=tool_input.get("end_date"),
+            ),
+            "get_routines": lambda: c.get_routines(),
         }
         fn = tool_map.get(tool_name)
         if not fn:
