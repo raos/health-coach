@@ -51,8 +51,8 @@ def import_tokens(payload: TokenImportRequest):
     # which returns an empty body from Railway's IP, causing a JSON parse error.
     # Garmin's server validates the actual access_token independently.
     oauth2 = dict(payload.oauth2)
-    oauth2["expires_at"] = time.time() + 86400 * 365  # 1 year from now
-    oauth2["refresh_token_expires_at"] = time.time() + 86400 * 365
+    oauth2["expires_at"] = int(time.time()) + 86400 * 365  # 1 year from now
+    oauth2["refresh_token_expires_at"] = int(time.time()) + 86400 * 365
     with open(os.path.join(token_dir, "oauth2_token.json"), "w") as f:
         json.dump(oauth2, f)
     # Reset client so it picks up the new tokens on next data request
