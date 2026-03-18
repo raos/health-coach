@@ -141,6 +141,26 @@ def get_resting_hr_range(days: int = 30):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/debug/tokens")
+def debug_tokens():
+    """Check what token files exist and whether they contain valid JSON."""
+    token_dir = garmin_service._token_dir()
+    result = {"token_dir": token_dir, "files": {}}
+    for fname in ["oauth1_token.json", "oauth2_token.json"]:
+        fpath = os.path.join(token_dir, fname)
+        if not os.path.exists(fpath):
+            result["files"][fname] = {"exists": False}
+            continue
+        try:
+            with open(fpath) as f:
+                content = f.read()
+            parsed = json.loads(content)
+            result["files"][fname] = {"exists": True, "size": len(content), "keys": list(parsed.keys())}
+        except Exception as e:
+            result["files"][fname] = {"exists": True, "error": str(e)}
+    return result
+
+
 @router.get("/debug/raw")
 def debug_raw():
     """Return raw API responses for HRV and resting HR to inspect field names."""
