@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -45,8 +46,15 @@ def import_tokens(payload: TokenImportRequest):
     os.makedirs(token_dir, exist_ok=True)
     with open(os.path.join(token_dir, "oauth1_token.json"), "w") as f:
         json.dump(payload.oauth1, f)
+    # Extend expires_at far into the future so garth never auto-refreshes.
+    # garth's refresh hits connectapi.garmin.com/oauth-service/oauth/exchange
+    # which returns an empty body from Railway's IP, causing a JSON parse error.
+    # Garmin's server validates the actual access_token independently.
+    oauth2 = dict(payload.oauth2)
+    oauth2["expires_at"] = time.time() + 86400 * 365  # 1 year from now
+    oauth2["refresh_token_expires_at"] = time.time() + 86400 * 365
     with open(os.path.join(token_dir, "oauth2_token.json"), "w") as f:
-        json.dump(payload.oauth2, f)
+        json.dump(oauth2, f)
     # Reset client so it picks up the new tokens on next data request
     garmin_service._client = None
     return {"status": "ok", "token_dir": token_dir}
