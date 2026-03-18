@@ -729,14 +729,19 @@ def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
 def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
     try:
         from database.models import StravaActivity
-        from datetime import datetime
+        from datetime import datetime, timezone
         q = db.query(StravaActivity)
         if tool_input.get("activity_type"):
             q = q.filter(StravaActivity.activity_type == tool_input["activity_type"])
         if tool_input.get("start_date"):
-            q = q.filter(StravaActivity.start_date >= tool_input["start_date"])
+            q = q.filter(
+                StravaActivity.start_date >= datetime.fromisoformat(tool_input["start_date"])
+            )
         if tool_input.get("end_date"):
-            q = q.filter(StravaActivity.start_date <= tool_input["end_date"] + "T23:59:59")
+            end = datetime.fromisoformat(tool_input["end_date"]).replace(
+                hour=23, minute=59, second=59
+            )
+            q = q.filter(StravaActivity.start_date <= end)
         limit = tool_input.get("limit", 10)
         activities = q.order_by(desc(StravaActivity.start_date)).limit(limit).all()
         result = []
@@ -749,7 +754,7 @@ def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
             result.append({
                 "name": a.name,
                 "type": a.activity_type,
-                "date": a.start_date[:10] if a.start_date else None,
+                "date": a.start_date.strftime("%Y-%m-%d") if a.start_date else None,
                 "distance_miles": dist_mi,
                 "duration_minutes": dur_min,
                 "pace": pace,
@@ -783,8 +788,11 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
     device_note = _device_instruction(training_device)
     measurement_note = _measurement_instruction(measurement_system)
 
+    from datetime import date as _date
+    today_str = _date.today().isoformat()
     system = (
         COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2)
+        + f"\n\n## Today's Date\nToday is {today_str}. Use this when filtering activities by date."
         + f"\n\n{hevy_note}"
         + f"\n\n## Equipment Constraint\n{device_note}"
         + f"\n\n## Units\n{measurement_note}"
