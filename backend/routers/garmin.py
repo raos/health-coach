@@ -47,9 +47,13 @@ def import_tokens(payload: TokenImportRequest):
         json.dump(payload.oauth1, f)
     with open(os.path.join(token_dir, "oauth2_token.json"), "w") as f:
         json.dump(payload.oauth2, f)
-    # Reset client so it picks up the new tokens on next request
+    # Immediately authenticate using the saved tokens
     garmin_service._client = None
-    return {"status": "ok", "token_dir": token_dir}
+    try:
+        garmin_service._get_client()
+        return {"status": "ok", "token_dir": token_dir, "authenticated": True}
+    except Exception as e:
+        return {"status": "ok", "token_dir": token_dir, "authenticated": False, "auth_error": str(e)}
 
 
 @router.post("/login")
