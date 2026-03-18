@@ -139,8 +139,8 @@ class GarminService:
                 client.login(tokenstore=token_dir)
                 self._client = client
                 return client
-            except Exception:
-                pass
+            except Exception as e:
+                raise RuntimeError(f"Garmin token restore failed: {e}") from e
         raise RuntimeError("Garmin not authenticated. Go to Settings → Garmin Connect → Connect.")
 
     # ── Data methods ──────────────────────────────────────────────────────────
