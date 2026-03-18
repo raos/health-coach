@@ -32,7 +32,11 @@ class GarminService:
         return bool(settings.garmin_email and settings.garmin_password)
 
     def is_authenticated(self) -> bool:
-        return self._client is not None
+        if self._client is not None:
+            return True
+        # Optimistic: token files present means we can authenticate on first data call
+        token_dir = _TOKEN_DIR
+        return os.path.exists(os.path.join(token_dir, "oauth2_token.json"))
 
     def _token_dir(self) -> str:
         os.makedirs(_TOKEN_DIR, exist_ok=True)
