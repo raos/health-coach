@@ -130,25 +130,19 @@ class GarminService:
     def _get_client(self):
         if self._client is not None:
             return self._client
-        # Try to restore from saved tokens silently (e.g. after server restart)
+        # Try to restore from saved tokens (e.g. after server restart).
+        # login(tokenstore=) loads tokens, refreshes the OAuth2 token if
+        # expired, and sets display_name — all needed for API URL construction.
         token_dir = self._token_dir()
         if os.path.exists(os.path.join(token_dir, "oauth2_token.json")) and self.is_configured():
             try:
                 from garminconnect import Garmin
                 client = Garmin(settings.garmin_email, settings.garmin_password)
-                client.garth.load(token_dir)
-                # Fetch profile to populate display_name — garminconnect uses
-                # it in every URL (e.g. /dailySleepData/<display_name>).
-                # Also validates that the access token is still accepted.
-                profile = client.garth.connectapi(
-                    "/userprofile-service/socialProfile"
-                )
-                client.display_name = profile["displayName"]
-                client.full_name = profile.get("fullName", "")
+                client.login(tokenstore=token_dir)
                 self._client = client
                 return client
             except Exception as e:
-                raise RuntimeError(f"Garmin token invalid/expired: {e}") from e
+                raise RuntimeError(f"Garmin token restore failed: {e}") from e
         raise RuntimeError("Garmin not authenticated. Go to Settings → Garmin Connect → Connect.")
 
     # ── Data methods ──────────────────────────────────────────────────────────
