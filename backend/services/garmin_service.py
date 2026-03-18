@@ -82,7 +82,7 @@ class GarminService:
         if os.path.exists(os.path.join(token_dir, "oauth2_token.json")):
             try:
                 client = Garmin(settings.garmin_email, settings.garmin_password)
-                client.login(tokenstore=token_dir)
+                client.garth.load(token_dir)
                 self._client = client
                 return "ok"
             except Exception:
@@ -136,7 +136,10 @@ class GarminService:
             try:
                 from garminconnect import Garmin
                 client = Garmin(settings.garmin_email, settings.garmin_password)
-                client.login(tokenstore=token_dir)
+                # Load saved tokens directly without triggering the network
+                # validation call that login(tokenstore=) makes afterwards.
+                # Garth will refresh the access token automatically on first use.
+                client.garth.load(token_dir)
                 self._client = client
                 return client
             except Exception as e:
