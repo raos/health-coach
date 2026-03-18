@@ -612,6 +612,27 @@ def generate_health_insights(db: Session) -> str:
     return response.content[0].text
 
 
+_STRAVA_TOOLS = [
+    {
+        "name": "get_strava_activities",
+        "description": (
+            "Fetch the user's cardio activities from Strava (runs, rides, walks, etc.). "
+            "Returns activity name, type, date, distance, duration, and heart rate. "
+            "Use this when asked about cardio sessions, runs, Zone 2 training, or any "
+            "activity that is NOT a Tonal/strength workout."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max activities to return (default 10)", "default": 10},
+                "activity_type": {"type": "string", "description": "Filter by Strava type: Run, Ride, Walk, Workout, etc."},
+                "start_date": {"type": "string", "description": "From date inclusive (YYYY-MM-DD)"},
+                "end_date": {"type": "string", "description": "To date inclusive (YYYY-MM-DD)"},
+            },
+        },
+    },
+]
+
 _HEVY_TOOLS = [
     {
         "name": "get_workouts",
@@ -705,6 +726,41 @@ def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
         return json.dumps({"error": str(e)})
 
 
+def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
+    try:
+        from database.models import StravaActivity
+        from datetime import datetime
+        q = db.query(StravaActivity)
+        if tool_input.get("activity_type"):
+            q = q.filter(StravaActivity.activity_type == tool_input["activity_type"])
+        if tool_input.get("start_date"):
+            q = q.filter(StravaActivity.start_date >= tool_input["start_date"])
+        if tool_input.get("end_date"):
+            q = q.filter(StravaActivity.start_date <= tool_input["end_date"] + "T23:59:59")
+        limit = tool_input.get("limit", 10)
+        activities = q.order_by(desc(StravaActivity.start_date)).limit(limit).all()
+        result = []
+        for a in activities:
+            dist_mi = round(a.distance_m / 1609.34, 2) if a.distance_m else None
+            dur_min = round(a.moving_time_s / 60, 1) if a.moving_time_s else None
+            pace = None
+            if dist_mi and dur_min and dist_mi > 0:
+                pace = f"{dur_min / dist_mi:.1f} min/mi"
+            result.append({
+                "name": a.name,
+                "type": a.activity_type,
+                "date": a.start_date[:10] if a.start_date else None,
+                "distance_miles": dist_mi,
+                "duration_minutes": dur_min,
+                "pace": pace,
+                "avg_hr": a.average_hr,
+                "max_hr": a.max_hr,
+            })
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 def chat_with_coach(message: str, history: list, db: Session) -> str:
     client = _get_client()
     latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
@@ -718,9 +774,10 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
 
     from config import settings as cfg
     hevy_note = (
-        "You have access to Hevy workout tools. Use them proactively when asked about workouts, progress, or exercises."
+        "You have access to Hevy tools (strength workouts) and Strava tools (cardio). "
+        "Use them proactively when asked about any training activity."
         if cfg.hevy_api_key
-        else "Hevy is not configured (no API key)."
+        else "Hevy is not configured. You have access to Strava tools for cardio data."
     )
 
     device_note = _device_instruction(training_device)
@@ -733,9 +790,11 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         + f"\n\n## Units\n{measurement_note}"
     )
     messages = history[-20:] + [{"role": "user", "content": message}]
-    tools = _HEVY_TOOLS if cfg.hevy_api_key else []
+    tools = _STRAVA_TOOLS + (_HEVY_TOOLS if cfg.hevy_api_key else [])
 
-    # Tool-use loop: Claude may call Hevy tools multiple times before responding
+    _strava_tool_names = {t["name"] for t in _STRAVA_TOOLS}
+
+    # Tool-use loop: Claude may call tools multiple times before responding
     for _ in range(5):  # max 5 tool rounds
         response = client.messages.create(
             model="claude-sonnet-4-6",
@@ -757,7 +816,10 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
-                result_str = _call_hevy_tool(block.name, block.input)
+                if block.name in _strava_tool_names:
+                    result_str = _call_strava_tool(block.name, block.input, db)
+                else:
+                    result_str = _call_hevy_tool(block.name, block.input)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
