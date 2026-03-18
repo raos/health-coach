@@ -136,14 +136,19 @@ class GarminService:
             try:
                 from garminconnect import Garmin
                 client = Garmin(settings.garmin_email, settings.garmin_password)
-                # Load saved tokens directly without triggering the network
-                # validation call that login(tokenstore=) makes afterwards.
-                # Garth will refresh the access token automatically on first use.
                 client.garth.load(token_dir)
+                # Fetch profile to populate display_name — garminconnect uses
+                # it in every URL (e.g. /dailySleepData/<display_name>).
+                # Also validates that the access token is still accepted.
+                profile = client.garth.connectapi(
+                    "/userprofile-service/socialProfile"
+                )
+                client.display_name = profile["displayName"]
+                client.full_name = profile.get("fullName", "")
                 self._client = client
                 return client
             except Exception as e:
-                raise RuntimeError(f"Garmin token restore failed: {e}") from e
+                raise RuntimeError(f"Garmin token invalid/expired: {e}") from e
         raise RuntimeError("Garmin not authenticated. Go to Settings → Garmin Connect → Connect.")
 
     # ── Data methods ──────────────────────────────────────────────────────────
