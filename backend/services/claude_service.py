@@ -10,7 +10,7 @@ from sqlalchemy import desc
 from config import settings
 from database.models import (
     WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
-    HevyExerciseSet, UserProfile
+    HevyExerciseSet, UserProfile, TrainingPlan
 )
 from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
 from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT
@@ -771,6 +771,7 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
     latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
     latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
     profile = db.query(UserProfile).first()
+    active_plan = db.query(TrainingPlan).filter(TrainingPlan.is_active == True).order_by(desc(TrainingPlan.generated_at)).first()
 
     bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
@@ -790,9 +791,26 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
 
     from datetime import date as _date
     today_str = _date.today().isoformat()
+
+    plan_section = ""
+    if active_plan:
+        try:
+            plan_data = json.loads(active_plan.plan_json)
+            plan_section = (
+                f"\n\n## Current Training Plan (week of {active_plan.week_start})\n"
+                + json.dumps(plan_data, indent=2)
+            )
+        except Exception:
+            if active_plan.plan_markdown:
+                plan_section = (
+                    f"\n\n## Current Training Plan (week of {active_plan.week_start})\n"
+                    + active_plan.plan_markdown
+                )
+
     system = (
         COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2)
         + f"\n\n## Today's Date\nToday is {today_str}. Use this when filtering activities by date."
+        + plan_section
         + f"\n\n{hevy_note}"
         + f"\n\n## Equipment Constraint\n{device_note}"
         + f"\n\n## Units\n{measurement_note}"
