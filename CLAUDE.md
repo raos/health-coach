@@ -154,23 +154,46 @@ Garmin account has MFA and it **cannot be disabled**. Login uses a threading app
 1. `POST /api/garmin/login` → spawns login thread, returns `{"status": "mfa_required"}` or `{"status": "ok"}`
 2. Frontend shows OTP input; user submits `POST /api/garmin/verify-mfa` with `{"otp": "123456"}`
 3. Login thread receives OTP via threading event and completes authentication
-4. Session tokens persisted to `backend/garmin_session/` (garth format) and reused on restart
+4. Session tokens persisted to directory set by `GARMIN_SESSION_DIR` env var (garth format) and reused on restart
 
-If garmin_session exists and tokens are valid, login succeeds without MFA (`{"status": "ok"}`).
+If saved tokens exist and are valid, `login(tokenstore=)` restores the session silently — no MFA needed.
+
+#### Garmin token persistence — critical for Railway
+**Always set `GARMIN_SESSION_DIR=/data/garmin_session` in Railway environment variables.** Without this, tokens are stored in the ephemeral container filesystem and wiped on every redeploy, forcing a fresh MFA login each time. The `/data` volume is Railway's persistent storage.
+
+#### How `_get_client()` works
+`client.login(tokenstore=token_dir)` does three things in one call: loads token files from disk, refreshes the OAuth2 token via `sso.exchange()` if expired, and sets `client.display_name` (required for URL construction — every garminconnect API URL includes `/displayName/`). **Never replace this with `garth.load()` directly** — that skips the display_name setup and all API calls will return 401 with URLs like `/dailySleepData/None`.
+
+#### Garmin IP rate limiting on Railway
+If too many failed login attempts are made from Railway's IP, Garmin rate-limits it (429 errors, or empty responses from `connectapi.garmin.com`). **Do not hammer the login/verify-mfa endpoints in a loop.** If rate-limited:
+- Wait 24-72 hours for the rate limit to clear
+- As a temporary workaround, import fresh tokens from a local machine via `POST /api/garmin/import-tokens` (see endpoint in `routers/garmin.py`)
+- To get fresh local tokens: delete `backend/garmin_session/oauth*.json`, restart local app, click Connect in Settings, complete MFA
+
+#### Token import endpoint
+`POST /api/garmin/import-tokens` accepts `{"oauth1": {...}, "oauth2": {...}}` (raw garth token JSON) and writes them to `GARMIN_SESSION_DIR`. Useful for bootstrapping Railway when the IP is rate-limited. Example:
+```bash
+curl -X POST https://<railway-host>/api/garmin/import-tokens \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"oauth1\": $(cat backend/garmin_session/oauth1_token.json), \"oauth2\": $(cat backend/garmin_session/oauth2_token.json)}"
+```
+
+#### `verify-mfa` must return HTTP 400, not 401
+If MFA verification fails, return `400 Bad Request`. A 401 triggers the Axios interceptor which redirects to `/login`, breaking the MFA flow in the frontend.
 
 ### Hevy
-Uses the `@vreippainen/hevy-mcp-server` npm package via stdio MCP protocol:
-- Client in `backend/services/hevy_mcp_client.py`
-- Communicates via newline-delimited JSON-RPC 2.0 to a subprocess
-- MCP tool responses return `{"workouts": [...], "totalWorkouts": N}` — always extract `.get("workouts", [])`, not the raw result
-- A singleton `_hevy_client_instance` is used in `claude_service.py` to avoid spawning a new subprocess per tool call
-- Config: `HEVY_API_KEY` in `.env` (not email/password — those legacy fields are ignored)
+Uses direct REST API calls to `api.hevyapp.com/v1` via `backend/services/hevy_api_client.py`:
+- `HevyAPIClient` makes httpx calls with `api-key` header
+- Methods: `get_workouts()`, `get_exercises()`, `get_exercise_progress()`, `get_routines()`
+- Config: `HEVY_API_KEY` in `.env`
+- The old `hevy_mcp_client.py` (Node.js subprocess) was replaced because Node.js is not available on Railway
 
 ---
 
 ## Claude AI Coach Chat (tool use)
 
-`chat_with_coach()` in `claude_service.py` runs a **tool-use loop** (up to 5 rounds). It defines 4 Hevy tools (`hevy_get_workouts`, `hevy_get_exercises`, `hevy_get_exercise_progress`, `hevy_get_routines`) and passes raw MCP results back to Claude. The last 20 turns from `CoachConversation` are included as context.
+`chat_with_coach()` in `claude_service.py` runs a **tool-use loop** (up to 5 rounds). It defines 4 Hevy tools (`hevy_get_workouts`, `hevy_get_exercises`, `hevy_get_exercise_progress`, `hevy_get_routines`) and calls `HevyAPIClient` methods directly (not MCP). The last 20 turns from `CoachConversation` are included as context.
 
 ---
 
