@@ -1,3 +1,5 @@
+import json
+import os
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -29,6 +31,25 @@ def garmin_status():
         "configured": True,
         "authenticated": garmin_service.is_authenticated(),
     }
+
+
+class TokenImportRequest(BaseModel):
+    oauth1: dict
+    oauth2: dict
+
+
+@router.post("/import-tokens")
+def import_tokens(payload: TokenImportRequest):
+    """Upload pre-authenticated Garmin session tokens from a local machine."""
+    token_dir = garmin_service._token_dir()
+    os.makedirs(token_dir, exist_ok=True)
+    with open(os.path.join(token_dir, "oauth1_token.json"), "w") as f:
+        json.dump(payload.oauth1, f)
+    with open(os.path.join(token_dir, "oauth2_token.json"), "w") as f:
+        json.dump(payload.oauth2, f)
+    # Reset client so it picks up the new tokens on next request
+    garmin_service._client = None
+    return {"status": "ok", "token_dir": token_dir}
 
 
 @router.post("/login")
