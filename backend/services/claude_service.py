@@ -47,6 +47,7 @@ def _build_recent_training(db: Session) -> str:
     strava = (
         db.query(StravaActivity)
         .filter(StravaActivity.start_date >= cutoff.isoformat())
+        .filter(StravaActivity.activity_type.notin_(["Workout", "WeightTraining"]))
         .order_by(desc(StravaActivity.start_date))
         .limit(10)
         .all()
@@ -730,7 +731,9 @@ def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
     try:
         from database.models import StravaActivity
         from datetime import datetime, timezone
-        q = db.query(StravaActivity)
+        q = db.query(StravaActivity).filter(
+            StravaActivity.activity_type.notin_(["Workout", "WeightTraining"])
+        )
         if tool_input.get("activity_type"):
             q = q.filter(StravaActivity.activity_type == tool_input["activity_type"])
         if tool_input.get("start_date"):
@@ -780,8 +783,10 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
 
     from config import settings as cfg
     hevy_note = (
-        "You have access to Hevy tools (strength workouts) and Strava tools (cardio). "
-        "Use them proactively when asked about any training activity."
+        "You have access to two training data sources — use the right one for each type:\n"
+        "- **Hevy tools**: ALL strength/weight training (Tonal workouts). Use for lifting volume, exercise progress, PRs.\n"
+        "- **Strava tool**: CARDIO ONLY (runs, walks, rides). Strength workouts are excluded from Strava results to avoid double-counting.\n"
+        "Never count the same workout from both sources."
         if cfg.hevy_api_key
         else "Hevy is not configured. You have access to Strava tools for cardio data."
     )

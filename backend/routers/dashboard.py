@@ -11,9 +11,17 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 TONAL_KEYWORDS = ["tonal", "free lift", "custom workout", "strength training on tonal"]
 
+# Strava activity types that are strength/weight training — sourced from Hevy instead
+STRAVA_STRENGTH_TYPES = ["Workout", "WeightTraining"]
+
 
 def _is_tonal(name: str) -> bool:
     return any(kw in name.lower() for kw in TONAL_KEYWORDS)
+
+
+def _is_strava_strength(activity) -> bool:
+    """True if this Strava activity is a strength/weight-training session (already in Hevy)."""
+    return activity.activity_type in STRAVA_STRENGTH_TYPES or _is_tonal(activity.name or "")
 
 
 @router.get("/summary")
@@ -77,12 +85,16 @@ def get_weight_trend(days: int = 90, db: Session = Depends(get_db)):
 
 @router.get("/activity-feed")
 def get_activity_feed(limit: int = 10, db: Session = Depends(get_db)):
-    strava = (
-        db.query(StravaActivity)
-        .order_by(desc(StravaActivity.start_date))
-        .limit(limit)
-        .all()
-    )
+    strava = [
+        a for a in (
+            db.query(StravaActivity)
+            .filter(StravaActivity.activity_type.notin_(STRAVA_STRENGTH_TYPES))
+            .order_by(desc(StravaActivity.start_date))
+            .limit(limit * 2)
+            .all()
+        )
+        if not _is_tonal(a.name or "")
+    ][:limit]
     hevy = (
         db.query(HevyWorkout)
         .order_by(desc(HevyWorkout.start_time))
@@ -130,7 +142,13 @@ def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
     start_dt = dt.combine(start_date, dt.min.time())
 
     hevy_list = db.query(HevyWorkout).filter(HevyWorkout.start_time >= start_dt).all()
-    strava_list = db.query(StravaActivity).filter(StravaActivity.start_date >= start_dt).all()
+    strava_list = [
+        a for a in db.query(StravaActivity)
+        .filter(StravaActivity.start_date >= start_dt)
+        .filter(StravaActivity.activity_type.notin_(STRAVA_STRENGTH_TYPES))
+        .all()
+        if not _is_tonal(a.name or "")
+    ]
 
     day_map: dict = {}
 
@@ -145,7 +163,7 @@ def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
         d = a.start_date.date().isoformat()
         entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "types": set(), "count": 0})
         entry["cardio_minutes"] += (a.moving_time_s or 0) / 60
-        entry["types"].add("tonal" if _is_tonal(a.name) else "cardio")
+        entry["types"].add("cardio")
         entry["count"] += 1
 
     return [
