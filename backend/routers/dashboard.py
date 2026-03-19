@@ -120,6 +120,46 @@ def get_activity_feed(limit: int = 10, db: Session = Depends(get_db)):
     return feed[:limit]
 
 
+@router.get("/workout-heatmap")
+def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
+    """Return per-day workout data for the last N weeks for the consistency heatmap."""
+    from datetime import datetime as dt
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    start_date = this_monday - timedelta(weeks=weeks - 1)
+    start_dt = dt.combine(start_date, dt.min.time())
+
+    hevy_list = db.query(HevyWorkout).filter(HevyWorkout.start_time >= start_dt).all()
+    strava_list = db.query(StravaActivity).filter(StravaActivity.start_date >= start_dt).all()
+
+    day_map: dict = {}
+
+    for w in hevy_list:
+        d = w.start_time.date().isoformat()
+        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "types": set(), "count": 0})
+        entry["hevy_volume_lbs"] += w.volume_lbs or 0
+        entry["types"].add("strength")
+        entry["count"] += 1
+
+    for a in strava_list:
+        d = a.start_date.date().isoformat()
+        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "types": set(), "count": 0})
+        entry["cardio_minutes"] += (a.moving_time_s or 0) / 60
+        entry["types"].add("tonal" if _is_tonal(a.name) else "cardio")
+        entry["count"] += 1
+
+    return [
+        {
+            "date": d,
+            "count": v["count"],
+            "hevy_volume_lbs": round(v["hevy_volume_lbs"], 1),
+            "cardio_minutes": round(v["cardio_minutes"], 1),
+            "types": sorted(v["types"]),
+        }
+        for d, v in sorted(day_map.items())
+    ]
+
+
 @router.get("/goal-progress")
 def get_goal_progress(db: Session = Depends(get_db)):
     profile = db.query(UserProfile).first()

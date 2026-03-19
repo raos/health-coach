@@ -20,3 +20,16 @@ export async function getGoalProgress(): Promise<GoalProgress> {
   const res = await client.get("/api/dashboard/goal-progress");
   return res.data;
 }
+
+export async function getWorkoutHeatmap(weeks = 12): Promise<WorkoutDay[]> {
+  const res = await client.get(`/api/dashboard/workout-heatmap?weeks=${weeks}`);
+  return res.data;
+}
+
+export interface WorkoutDay {
+  date: string;
+  count: number;
+  hevy_volume_lbs: number;
+  cardio_minutes: number;
+  types: string[];
+}

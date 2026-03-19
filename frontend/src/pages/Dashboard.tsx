@@ -6,9 +6,11 @@ import WeightChart from "../components/dashboard/WeightChart";
 import GoalProgress from "../components/dashboard/GoalProgress";
 import ActivityFeed from "../components/dashboard/ActivityFeed";
 import QuickWeightLog from "../components/dashboard/QuickWeightLog";
+import WorkoutHeatmap from "../components/dashboard/WorkoutHeatmap";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress } from "../api/dashboard";
+import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap } from "../api/dashboard";
+import type { WorkoutDay } from "../api/dashboard";
 import { syncActivities } from "../api/coach";
 import { getProfile } from "../api/profile";
 import { convertWeight, weightUnit } from "../hooks/useMeasurement";
@@ -23,20 +25,23 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [heatmapData, setHeatmapData] = useState<WorkoutDay[]>([]);
 
   const fetchAll = useCallback(async () => {
     try {
       setError("");
-      const [s, wt, af, gp] = await Promise.all([
+      const [s, wt, af, gp, hm] = await Promise.all([
         getDashboardSummary(),
         getWeightTrend(90),
         getActivityFeed(10),
         getGoalProgress(),
+        getWorkoutHeatmap(12),
       ]);
       setSummary(s);
       setWeightTrend(wt);
       setActivities(af);
       setGoalProgress(gp);
+      setHeatmapData(hm);
     } catch {
       setError("Failed to load dashboard data. Make sure the backend is running.");
     } finally {
@@ -157,6 +162,9 @@ export default function Dashboard() {
               <QuickWeightLog onLogged={fetchAll} />
             </div>
           </div>
+
+          {/* Workout Consistency Heatmap */}
+          <WorkoutHeatmap data={heatmapData} weeks={12} />
         </div>
       )}
     </PageWrapper>
