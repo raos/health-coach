@@ -116,22 +116,16 @@ def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends
 
         body = "\n".join(lines)
 
-        sent, errors = [], []
-        for address in ["m.sandeep.rao@gmail.com", "preetha.s.rao@gmail.com"]:
-            try:
-                send_plan_email(
-                    to_address=address,
-                    subject="Grocery Shopping List",
-                    body_text=body,
-                    pdf_bytes=None,
-                    pdf_filename=None,
-                )
-                sent.append(address)
-            except Exception as e:
-                errors.append(f"{address}: {e}")
-        if not sent:
-            raise RuntimeError("; ".join(errors))
-        return {"status": "sent", "sent_to": sent}
+        profile = db.query(UserProfile).first()
+        to_address = (profile.email or "").strip() if profile else ""
+        send_plan_email(
+            to_address=to_address,
+            subject="Grocery Shopping List",
+            body_text=body,
+            pdf_bytes=None,
+            pdf_filename=None,
+        )
+        return {"status": "sent", "sent_to": to_address}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -154,22 +148,16 @@ def email_meal_plan(db: Session = Depends(get_db)):
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
         pdf_filename = f"meal_plan_{week.replace(', ', '_').replace(' ', '_')}.pdf"
-        sent, errors = [], []
-        for address in ["m.sandeep.rao@gmail.com", "preetha.s.rao@gmail.com"]:
-            try:
-                send_plan_email(
-                    to_address=address,
-                    subject=title,
-                    body_text="Hi,\n\nThis week's meal plan is attached as a PDF.\n\nEnjoy!\n",
-                    pdf_bytes=pdf_bytes,
-                    pdf_filename=pdf_filename,
-                )
-                sent.append(address)
-            except Exception as e:
-                errors.append(f"{address}: {e}")
-        if not sent:
-            raise RuntimeError("; ".join(errors))
-        return {"status": "sent", "sent_to": sent}
+        profile = db.query(UserProfile).first()
+        to_address = (profile.email or "").strip() if profile else ""
+        send_plan_email(
+            to_address=to_address,
+            subject=title,
+            body_text="Hi,\n\nThis week's meal plan is attached as a PDF.\n\nEnjoy!\n",
+            pdf_bytes=pdf_bytes,
+            pdf_filename=pdf_filename,
+        )
+        return {"status": "sent", "sent_to": to_address}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
