@@ -70,17 +70,14 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
       gridData.push(week);
     }
 
-    // Month label: show month name above the first column that contains
-    // any day from a month that didn't appear in the previous column.
+    // Month label: show the month name above the column that contains the
+    // 1st of that month. For the first column (which may start mid-month),
+    // fall back to showing whatever month that column starts in.
     const mLabels = gridData.map((week, wi) => {
-      const prevMonths = wi > 0
-        ? new Set(gridData[wi - 1].map(c => c.date.getMonth()))
-        : new Set<number>();
       for (const cell of week) {
-        if (!prevMonths.has(cell.date.getMonth())) {
-          return MONTHS[cell.date.getMonth()];
-        }
+        if (cell.date.getDate() === 1) return MONTHS[cell.date.getMonth()];
       }
+      if (wi === 0) return MONTHS[week[0].date.getMonth()];
       return "";
     });
 
