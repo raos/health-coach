@@ -208,7 +208,7 @@ export default function Nutrition() {
     if (!parsedPlan?.shopping_list) return;
     const grouped: Record<string, string[]> = {};
     for (const [category, items] of Object.entries(parsedPlan.shopping_list)) {
-      const checked = (items as string[]).filter((item, i) => checkedItems.has(`${category}::${i}`));
+      const checked = (items as string[]).filter((_item, i) => checkedItems.has(`${category}::${i}`));
       if (checked.length > 0) grouped[category] = checked;
     }
     if (Object.keys(grouped).length === 0) {
