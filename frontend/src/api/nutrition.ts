@@ -30,3 +30,8 @@ export async function emailMealPlan() {
   const res = await client.post("/api/nutrition/email-plan");
   return res.data;
 }
+
+export async function emailShoppingList(items: Record<string, string[]>) {
+  const res = await client.post("/api/nutrition/email-shopping-list", { items });
+  return res.data;
+}

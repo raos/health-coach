@@ -7,6 +7,7 @@ from sqlalchemy import desc
 
 from database.engine import get_db
 from database.models import MealPlan, UserProfile
+from pydantic import BaseModel
 from schemas.nutrition import MealPlanResponse, RegenerateDayRequest, GenerateMealPlanRequest
 from services import claude_service
 
@@ -91,6 +92,43 @@ def regenerate_day(payload: RegenerateDayRequest, db: Session = Depends(get_db))
     db.commit()
     db.refresh(plan)
     return plan
+
+
+class ShoppingListEmailRequest(BaseModel):
+    items: dict[str, list[str]]
+
+
+@router.post("/email-shopping-list")
+def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends(get_db)):
+    """Email checked shopping list items to Sandeep and Preetha."""
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="No items provided.")
+    try:
+        from services.email_service import send_plan_email
+
+        lines = ["Here are the groceries you need to pick up:\n"]
+        for category, items in payload.items.items():
+            if items:
+                lines.append(f"{category.upper()}")
+                for item in items:
+                    lines.append(f"  - {item}")
+                lines.append("")
+
+        body = "\n".join(lines)
+
+        for address in ["m.sandeep.rao@gmail.com", "preetha.s.rao@gmail.com"]:
+            send_plan_email(
+                to_address=address,
+                subject="Grocery Shopping List",
+                body_text=body,
+                pdf_bytes=None,
+                pdf_filename=None,
+            )
+        return {"status": "sent"}
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
 
 
 @router.post("/email-plan")

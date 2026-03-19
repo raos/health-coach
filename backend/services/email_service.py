@@ -156,10 +156,10 @@ def send_plan_email(
     to_address: str,
     subject: str,
     body_text: str,
-    pdf_bytes: bytes,
-    pdf_filename: str,
+    pdf_bytes: bytes | None = None,
+    pdf_filename: str | None = None,
 ) -> None:
-    """Send an email with a PDF attachment via Resend."""
+    """Send an email via Resend, optionally with a PDF attachment."""
     if not settings.resend_api_key:
         raise RuntimeError("RESEND_API_KEY not configured. Add it to your .env file.")
     if not to_address:
@@ -172,11 +172,7 @@ def send_plan_email(
         "to": [to_address],
         "subject": subject,
         "text": body_text,
-        "attachments": [
-            {
-                "filename": pdf_filename,
-                "content": list(pdf_bytes),
-            }
-        ],
     }
+    if pdf_bytes and pdf_filename:
+        params["attachments"] = [{"filename": pdf_filename, "content": list(pdf_bytes)}]
     resend.Emails.send(params)

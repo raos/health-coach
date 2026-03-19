@@ -3,7 +3,7 @@ import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Sett
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan } from "../api/nutrition";
+import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList } from "../api/nutrition";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
@@ -114,6 +114,9 @@ export default function Nutrition() {
   const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
   const [showShopping, setShowShopping] = useState(false);
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  const [emailingList, setEmailingList] = useState(false);
+  const [listEmailStatus, setListEmailStatus] = useState("");
   const [calorieTarget, setCalorieTarget] = useState(2200);
   const [showPrefs, setShowPrefs] = useState(false);
   const [breakfastPrefs, setBreakfastPrefs] = useState(
@@ -190,6 +193,39 @@ export default function Nutrition() {
       setError("Failed to regenerate day.");
     } finally {
       setRegeneratingDay(false);
+    }
+  }
+
+  function toggleItem(key: string) {
+    setCheckedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleEmailShoppingList() {
+    if (!parsedPlan?.shopping_list) return;
+    const grouped: Record<string, string[]> = {};
+    for (const [category, items] of Object.entries(parsedPlan.shopping_list)) {
+      const checked = (items as string[]).filter((item, i) => checkedItems.has(`${category}::${i}`));
+      if (checked.length > 0) grouped[category] = checked;
+    }
+    if (Object.keys(grouped).length === 0) {
+      setError("No items checked. Check the items you need to buy first.");
+      return;
+    }
+    setEmailingList(true);
+    setListEmailStatus("");
+    setError("");
+    try {
+      await emailShoppingList(grouped);
+      setListEmailStatus("Sent!");
+      setTimeout(() => setListEmailStatus(""), 3000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to send shopping list email.");
+    } finally {
+      setEmailingList(false);
     }
   }
 
@@ -360,20 +396,49 @@ export default function Nutrition() {
           {/* Shopping list */}
           {showShopping && (
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4" /> Weekly Shopping List
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4" /> Weekly Shopping List
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {checkedItems.size} item{checkedItems.size !== 1 ? "s" : ""} checked
+                  </span>
+                  <button
+                    onClick={handleEmailShoppingList}
+                    disabled={emailingList || checkedItems.size === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    {emailingList ? "Sending..." : listEmailStatus || "Email Checked Items"}
+                  </button>
+                </div>
+              </div>
               {parsedPlan.shopping_list && Object.keys(parsedPlan.shopping_list).length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {Object.entries(parsedPlan.shopping_list).map(([category, items]) => (
                     <div key={category}>
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{category}</p>
-                      <ul className="space-y-1">
-                        {(items as string[]).map((item, i) => (
-                          <li key={i} className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-1.5">
-                            <span className="text-gray-300 dark:text-gray-600">•</span>{item}
-                          </li>
-                        ))}
+                      <ul className="space-y-1.5">
+                        {(items as string[]).map((item, i) => {
+                          const key = `${category}::${i}`;
+                          const checked = checkedItems.has(key);
+                          return (
+                            <li key={i}>
+                              <label className="flex items-start gap-2 cursor-pointer group">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleItem(key)}
+                                  className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-green-600 cursor-pointer"
+                                />
+                                <span className={`text-sm transition-colors ${checked ? "line-through text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100"}`}>
+                                  {item}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   ))}
