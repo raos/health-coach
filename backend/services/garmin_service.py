@@ -192,7 +192,7 @@ class GarminService:
     def get_sleep_range(self, days: int = 30) -> list:
         """Sleep data for the past N days, oldest first."""
         results = []
-        for i in range(days, 0, -1):
+        for i in range(days, -1, -1):
             d = date.today() - timedelta(days=i)
             try:
                 sleep = self.get_sleep_data(d)
