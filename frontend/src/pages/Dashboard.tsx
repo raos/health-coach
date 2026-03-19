@@ -163,8 +163,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Workout Consistency Heatmap */}
-          <WorkoutHeatmap data={heatmapData} weeks={12} />
+          {/* Workout Consistency Heatmap — same width as Activity Feed */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2">
+              <WorkoutHeatmap data={heatmapData} weeks={12} />
+            </div>
+          </div>
         </div>
       )}
     </PageWrapper>
