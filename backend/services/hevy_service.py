@@ -95,13 +95,13 @@ def _upsert_workout(db: Session, w: dict) -> bool:
     return is_new
 
 
-def sync_workouts(db: Session, limit: int = 30) -> dict:
+def sync_workouts(db: Session, limit: int = 200) -> dict:
     """Fetch recent workouts via MCP and sync to DB. Returns counts of added/updated/deleted."""
     if not is_configured():
         return {"added": 0, "updated": 0, "deleted": 0}
 
     client = _get_client()
-    cutoff_date = date.today() - timedelta(days=90)
+    cutoff_date = date.today() - timedelta(days=180)
     cutoff_str = cutoff_date.isoformat()
     workouts = client.get_workouts(limit=limit, start_date=cutoff_str)
 

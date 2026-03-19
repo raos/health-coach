@@ -107,7 +107,7 @@ class StravaService:
 
         return {"connected": True, "athlete_id": token.athlete_id}
 
-    def sync_activities(self, per_page: int = 30) -> dict:
+    def sync_activities(self, per_page: int = 200) -> dict:
         access_token = self._refresh_if_needed()
         if not access_token:
             return {"added": 0, "updated": 0, "deleted": 0}
