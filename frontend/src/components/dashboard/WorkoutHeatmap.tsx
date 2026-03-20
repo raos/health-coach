@@ -30,7 +30,7 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
   const { grid, streak, totalSessions, monthLabels } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayIso = toLocalIso(today);
+
 
     // Monday of the current week
     const dow = today.getDay(); // 0=Sun
