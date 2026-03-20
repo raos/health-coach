@@ -133,7 +133,7 @@ class HevyAPIClient:
           sets (list of {type, weight_kg, reps})
         Returns the created routine object.
         """
-        payload = {"routine": {"title": title, "exercises": exercises}}
+        payload = {"routine": {"title": title, "folder_id": None, "exercises": exercises}}
         return self._post("/routines", payload)
 
     def close(self):
