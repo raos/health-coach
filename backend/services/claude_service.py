@@ -641,7 +641,7 @@ _HEVY_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "Max number of workouts to return (default 10)", "default": 10},
+                "limit": {"type": "integer", "description": "Max number of workouts to return (default 20)", "default": 20},
                 "start_date": {"type": "string", "description": "Filter from this date (YYYY-MM-DD)"},
                 "end_date": {"type": "string", "description": "Filter to this date (YYYY-MM-DD)"},
             },
@@ -692,19 +692,51 @@ def _get_hevy_client():
     return _hevy_client_instance
 
 
-def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
+def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None) -> str:
     try:
         from config import settings as cfg
         if not cfg.hevy_api_key:
             return json.dumps({"error": "HEVY_API_KEY not configured"})
+
+        # get_workouts reads from the local DB (populated by Dashboard sync) so the
+        # coach always sees the same data as the activity feed — no live API lag.
+        if tool_name == "get_workouts" and db is not None:
+            from database.models import HevyWorkout, HevyExerciseSet
+            from datetime import datetime as _dt
+            limit = tool_input.get("limit", 20)
+            q = db.query(HevyWorkout)
+            if tool_input.get("start_date"):
+                q = q.filter(HevyWorkout.start_time >= _dt.fromisoformat(tool_input["start_date"]))
+            if tool_input.get("end_date"):
+                end = _dt.fromisoformat(tool_input["end_date"]).replace(hour=23, minute=59, second=59)
+                q = q.filter(HevyWorkout.start_time <= end)
+            workouts = q.order_by(desc(HevyWorkout.start_time)).limit(limit).all()
+            result = []
+            for w in workouts:
+                sets = db.query(HevyExerciseSet).filter(HevyExerciseSet.workout_id == w.id).all()
+                exercises: dict = {}
+                for s in sets:
+                    exercises.setdefault(s.exercise_name, []).append({
+                        "type": s.set_type,
+                        "weight_lbs": s.weight_lbs,
+                        "reps": s.reps,
+                        "rpe": s.rpe,
+                    })
+                result.append({
+                    "id": w.id,
+                    "title": w.title,
+                    "start_time": w.start_time.isoformat() if w.start_time else None,
+                    "duration_s": w.duration_s,
+                    "volume_lbs": round(w.volume_lbs, 1) if w.volume_lbs else None,
+                    "exercises": [
+                        {"title": name, "sets": sets_list}
+                        for name, sets_list in exercises.items()
+                    ],
+                })
+            return json.dumps(result)
+
         c = _get_hevy_client()
-        # Pass raw call_tool result directly to Claude so it sees full response
         tool_map = {
-            "get_workouts": lambda: c.get_workouts(
-                limit=tool_input.get("limit", 10),
-                start_date=tool_input.get("start_date"),
-                end_date=tool_input.get("end_date"),
-            ),
             "get_exercises": lambda: c.get_exercises(
                 search_term=tool_input.get("search_term"),
                 exclude_unused=tool_input.get("exclude_unused", True),
@@ -723,7 +755,7 @@ def _call_hevy_tool(tool_name: str, tool_input: dict) -> str:
         return json.dumps(fn())
     except Exception as e:
         global _hevy_client_instance
-        _hevy_client_instance = None  # Reset on error so next call spawns fresh
+        _hevy_client_instance = None
         return json.dumps({"error": str(e)})
 
 
@@ -850,7 +882,7 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
                 if block.name in _strava_tool_names:
                     result_str = _call_strava_tool(block.name, block.input, db)
                 else:
-                    result_str = _call_hevy_tool(block.name, block.input)
+                    result_str = _call_hevy_tool(block.name, block.input, db)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
