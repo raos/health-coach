@@ -156,6 +156,22 @@ class OAuthToken(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class GarminDailyCache(Base):
+    """One row per calendar day — caches Garmin data so charts survive token expiry."""
+    __tablename__ = "garmin_daily_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True, index=True)
+    sleep_duration_hours = Column(Float)
+    sleep_score = Column(Integer)
+    deep_min = Column(Integer)
+    rem_min = Column(Integer)
+    light_min = Column(Integer)
+    steps = Column(Integer)
+    resting_hr = Column(Integer)
+    synced_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserProfile(Base):
     __tablename__ = "user_profile"
 

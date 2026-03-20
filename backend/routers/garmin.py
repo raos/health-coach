@@ -1,13 +1,36 @@
 import json
 import os
-from datetime import date
+from datetime import date, timedelta, datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from database.engine import get_db
+from database.models import GarminDailyCache
 from services.garmin_service import garmin_service
 
 router = APIRouter(prefix="/api/garmin", tags=["garmin"])
+
+
+# ── Cache helpers ──────────────────────────────────────────────────────────────
+
+def _upsert_cache(db: Session, **kwargs) -> None:
+    """Insert or update a GarminDailyCache row keyed by date."""
+    row_date = kwargs.pop("date")
+    existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == row_date).first()
+    if existing:
+        for k, v in kwargs.items():
+            if v is not None:
+                setattr(existing, k, v)
+        existing.synced_at = datetime.utcnow()
+    else:
+        db.add(GarminDailyCache(date=row_date, synced_at=datetime.utcnow(), **kwargs))
+
+
+def _date_range(days: int) -> list:
+    today = date.today()
+    return [today - timedelta(days=i) for i in range(days, 0, -1)]
 
 
 def _require_auth():
@@ -115,30 +138,86 @@ def get_vo2max():
 
 
 @router.get("/sleep/range")
-def get_sleep_range(days: int = 30):
+def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
     _require_auth()
+    # Try live fetch; cache any results that come back
     try:
-        return garmin_service.get_sleep_range(days)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        live = garmin_service.get_sleep_range(days)
+        for row in live:
+            _upsert_cache(
+                db,
+                date=date.fromisoformat(row["date"]),
+                sleep_duration_hours=row.get("duration_hours"),
+                sleep_score=row.get("score"),
+                deep_min=row.get("deep_min"),
+                rem_min=row.get("rem_min"),
+                light_min=row.get("light_min"),
+            )
+        db.commit()
+    except Exception:
+        pass  # Fall through to cache
+
+    # Serve from cache (covers gaps when live data is unavailable)
+    start = date.today() - timedelta(days=days)
+    rows = (
+        db.query(GarminDailyCache)
+        .filter(GarminDailyCache.date > start, GarminDailyCache.sleep_duration_hours.isnot(None))
+        .order_by(GarminDailyCache.date)
+        .all()
+    )
+    return [
+        {
+            "date": r.date.isoformat(),
+            "duration_hours": r.sleep_duration_hours,
+            "score": r.sleep_score,
+            "deep_min": r.deep_min,
+            "rem_min": r.rem_min,
+            "light_min": r.light_min,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/steps/range")
-def get_steps_range(days: int = 30):
+def get_steps_range(days: int = 30, db: Session = Depends(get_db)):
     _require_auth()
     try:
-        return garmin_service.get_steps_range(days)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        live = garmin_service.get_steps_range(days)
+        for row in live:
+            _upsert_cache(db, date=date.fromisoformat(row["date"]), steps=row.get("steps"))
+        db.commit()
+    except Exception:
+        pass
+
+    start = date.today() - timedelta(days=days)
+    rows = (
+        db.query(GarminDailyCache)
+        .filter(GarminDailyCache.date > start, GarminDailyCache.steps.isnot(None))
+        .order_by(GarminDailyCache.date)
+        .all()
+    )
+    return [{"date": r.date.isoformat(), "steps": r.steps} for r in rows]
 
 
 @router.get("/resting-hr/range")
-def get_resting_hr_range(days: int = 30):
+def get_resting_hr_range(days: int = 30, db: Session = Depends(get_db)):
     _require_auth()
     try:
-        return garmin_service.get_resting_hr_range(days)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        live = garmin_service.get_resting_hr_range(days)
+        for row in live:
+            _upsert_cache(db, date=date.fromisoformat(row["date"]), resting_hr=row.get("rhr"))
+        db.commit()
+    except Exception:
+        pass
+
+    start = date.today() - timedelta(days=days)
+    rows = (
+        db.query(GarminDailyCache)
+        .filter(GarminDailyCache.date > start, GarminDailyCache.resting_hr.isnot(None))
+        .order_by(GarminDailyCache.date)
+        .all()
+    )
+    return [{"date": r.date.isoformat(), "rhr": r.resting_hr} for r in rows]
 
 
 @router.get("/debug/tokens")

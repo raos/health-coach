@@ -77,12 +77,14 @@ class GarminService:
 
         from garminconnect import Garmin
 
-        # Try saved session tokens first
+        # Try saved session tokens first.
+        # Must use login(tokenstore=) — not garth.load() — because login() also
+        # refreshes the OAuth2 token and sets display_name (needed for all API URLs).
         token_dir = self._token_dir()
         if os.path.exists(os.path.join(token_dir, "oauth2_token.json")):
             try:
                 client = Garmin(settings.garmin_email, settings.garmin_password)
-                client.garth.load(token_dir)
+                client.login(tokenstore=token_dir)
                 self._client = client
                 return "ok"
             except Exception:
