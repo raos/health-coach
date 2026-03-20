@@ -170,7 +170,7 @@ def push_routine(payload: PushRoutineRequest):
                 "rest_seconds": ex.rest_seconds,
                 "notes": ex.coaching_note[:500] if ex.coaching_note else "",
                 "sets": [
-                    {"type": "normal", "weight_kg": None, "reps": reps}
+                    {"type": "normal", "weight_kg": 0, "reps": reps}
                     for _ in range(ex.sets)
                 ],
             })

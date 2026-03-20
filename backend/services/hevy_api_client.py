@@ -27,7 +27,12 @@ class HevyAPIClient:
                 headers={**self._headers, "Content-Type": "application/json"},
                 json=body,
             )
-            resp.raise_for_status()
+            if not resp.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} {resp.reason_phrase}: {resp.text}",
+                    request=resp.request,
+                    response=resp,
+                )
             return resp.json()
 
     # ── Public methods matching HevyMCPClient interface ───────────────────────
