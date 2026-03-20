@@ -189,10 +189,16 @@ def push_routine(payload: PushRoutineRequest):
         )
 
     result = client.create_routine(title=payload.title, exercises=hevy_exercises)
+    # Hevy may return {"routine": {...}}, {"routine": [...]}, a bare list, or {"id": ...}
+    routine_id = None
     if isinstance(result, list):
         routine_id = result[0].get("id") if result else None
-    else:
-        routine_id = result.get("routine", {}).get("id") or result.get("id")
+    elif isinstance(result, dict):
+        inner = result.get("routine") or result
+        if isinstance(inner, list):
+            routine_id = inner[0].get("id") if inner else None
+        elif isinstance(inner, dict):
+            routine_id = inner.get("id")
 
     return {
         "routine_id": routine_id,
