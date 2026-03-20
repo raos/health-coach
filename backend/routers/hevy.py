@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+import re
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import desc
+from typing import List
 
+from config import settings
 from database.engine import get_db
 from database.models import HevyExerciseSet, HevyWorkout
 
@@ -84,3 +88,111 @@ def get_exercise_progress(
         })
 
     return result
+
+
+# ── Push routine to Hevy ───────────────────────────────────────────────────────
+
+class PushExercise(BaseModel):
+    name: str
+    sets: int
+    reps: str          # e.g. "8-12", "15-20"
+    rest_seconds: int = 90
+    coaching_note: str = ""
+
+
+class PushRoutineRequest(BaseModel):
+    title: str         # e.g. "Upper A — Horizontal Push + Vertical Pull"
+    exercises: List[PushExercise]
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, strip parentheses content, remove punctuation, collapse spaces."""
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"[^a-z0-9 ]", "", text.lower())
+    return text.strip()
+
+
+def _match_score(plan_name: str, template_title: str) -> float:
+    """Return a 0–1 overlap score between plan exercise name and Hevy template title."""
+    a_words = set(_normalize(plan_name).split())
+    b_words = set(_normalize(template_title).split())
+    if not a_words or not b_words:
+        return 0.0
+    common = a_words & b_words
+    # Ignore very short words (articles, prepositions)
+    common = {w for w in common if len(w) > 2}
+    if not common:
+        return 0.0
+    return len(common) / max(len(a_words), len(b_words))
+
+
+def _parse_reps(reps_str: str) -> int:
+    """Parse '8-12' → 8, '15-20' → 15, '10' → 10, 'AMRAP' → 10."""
+    m = re.match(r"(\d+)", reps_str.strip())
+    return int(m.group(1)) if m else 10
+
+
+@router.post("/push-routine")
+def push_routine(payload: PushRoutineRequest):
+    """
+    Create a routine in Hevy from a training plan day.
+    Fuzzy-matches exercise names to Hevy exercise templates.
+    Returns: { routine_id, matched: [...], unmatched: [...] }
+    """
+    if not settings.hevy_api_key:
+        raise HTTPException(status_code=503, detail="HEVY_API_KEY not configured.")
+
+    from services.hevy_api_client import HevyAPIClient
+    client = HevyAPIClient(settings.hevy_api_key)
+
+    # Fetch all exercise templates once
+    templates = client.get_exercises(exclude_unused=False)
+
+    hevy_exercises = []
+    matched = []
+    unmatched = []
+
+    for ex in payload.exercises:
+        # Find best-matching template
+        best_score = 0.0
+        best_template = None
+        for tmpl in templates:
+            score = _match_score(ex.name, tmpl.get("title", ""))
+            if score > best_score:
+                best_score = score
+                best_template = tmpl
+
+        MATCH_THRESHOLD = 0.4
+        if best_template and best_score >= MATCH_THRESHOLD:
+            reps = _parse_reps(ex.reps)
+            hevy_exercises.append({
+                "exercise_template_id": best_template["id"],
+                "rest_seconds": ex.rest_seconds,
+                "notes": ex.coaching_note[:500] if ex.coaching_note else "",
+                "sets": [
+                    {"type": "normal", "weight_kg": None, "reps": reps}
+                    for _ in range(ex.sets)
+                ],
+            })
+            matched.append({
+                "plan_name": ex.name,
+                "hevy_name": best_template.get("title"),
+                "score": round(best_score, 2),
+            })
+        else:
+            unmatched.append(ex.name)
+
+    if not hevy_exercises:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No exercises could be matched to Hevy templates. Unmatched: {unmatched}",
+        )
+
+    result = client.create_routine(title=payload.title, exercises=hevy_exercises)
+    routine_id = result.get("routine", {}).get("id") or result.get("id")
+
+    return {
+        "routine_id": routine_id,
+        "matched": matched,
+        "unmatched": unmatched,
+    }

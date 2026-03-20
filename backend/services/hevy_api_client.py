@@ -20,6 +20,16 @@ class HevyAPIClient:
             resp.raise_for_status()
             return resp.json()
 
+    def _post(self, path: str, body: dict) -> dict:
+        with httpx.Client(timeout=15) as client:
+            resp = client.post(
+                f"{_BASE}{path}",
+                headers={**self._headers, "Content-Type": "application/json"},
+                json=body,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     # ── Public methods matching HevyMCPClient interface ───────────────────────
 
     def get_workouts(
@@ -109,6 +119,17 @@ class HevyAPIClient:
                 break
             page += 1
         return all_routines
+
+    def create_routine(self, title: str, exercises: list) -> dict:
+        """
+        Create a routine in Hevy.
+        exercises: list of dicts — each must have:
+          exercise_template_id (str), rest_seconds (int), notes (str),
+          sets (list of {type, weight_kg, reps})
+        Returns the created routine object.
+        """
+        payload = {"routine": {"title": title, "exercises": exercises}}
+        return self._post("/routines", payload)
 
     def close(self):
         pass  # No persistent connection to close
