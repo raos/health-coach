@@ -189,7 +189,10 @@ def push_routine(payload: PushRoutineRequest):
         )
 
     result = client.create_routine(title=payload.title, exercises=hevy_exercises)
-    routine_id = result.get("routine", {}).get("id") or result.get("id")
+    if isinstance(result, list):
+        routine_id = result[0].get("id") if result else None
+    else:
+        routine_id = result.get("routine", {}).get("id") or result.get("id")
 
     return {
         "routine_id": routine_id,
