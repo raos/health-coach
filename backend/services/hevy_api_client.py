@@ -29,17 +29,19 @@ class HevyAPIClient:
         end_date: str = None,
     ) -> list:
         """Return recent workouts, optionally filtered by ISO date strings."""
-        page_size = min(limit, 10)  # Hevy max page size is 10
-        pages_needed = (limit + page_size - 1) // page_size
+        page_size = 10  # Hevy max page size is 10
         workouts = []
-        for page in range(1, pages_needed + 1):
+        page = 1
+        while len(workouts) < limit:
             data = self._get("/workouts", {"page": page, "pageSize": page_size})
             batch = data.get("workouts", [])
             if not batch:
                 break
             workouts.extend(batch)
-            if len(workouts) >= limit or page >= data.get("pageCount", 1):
+            # Stop when last page (batch smaller than page_size) or limit reached
+            if len(batch) < page_size:
                 break
+            page += 1
 
         # Filter by date if requested
         if start_date:

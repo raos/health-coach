@@ -31,5 +31,6 @@ export interface WorkoutDay {
   count: number;
   hevy_volume_lbs: number;
   cardio_minutes: number;
+  total_minutes: number;
   types: string[];
 }

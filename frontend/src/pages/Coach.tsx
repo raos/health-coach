@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Dumbbell, Send, RefreshCw, ChevronDown, ChevronUp, Mail } from "lucide-react";
+import StrengthProgress from "../components/coach/StrengthProgress";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
@@ -223,6 +224,11 @@ export default function Coach() {
       }
     >
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+
+      {/* Strength Progress */}
+      <div className="mb-6">
+        <StrengthProgress />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Training Plan */}

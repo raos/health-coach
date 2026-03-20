@@ -142,28 +142,39 @@ def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
     start_dt = dt.combine(start_date, dt.min.time())
 
     hevy_list = db.query(HevyWorkout).filter(HevyWorkout.start_time >= start_dt).all()
-    strava_list = [
-        a for a in db.query(StravaActivity)
+    # Include ALL Strava activities in the heatmap (no dedup needed — we just need to know
+    # whether a workout happened on a given day; deduplication only applies to the feed).
+    strava_list = (
+        db.query(StravaActivity)
         .filter(StravaActivity.start_date >= start_dt)
-        .filter(StravaActivity.activity_type.notin_(STRAVA_STRENGTH_TYPES))
         .all()
-        if not _is_tonal(a.name or "")
-    ]
+    )
 
+    # Track which days already have a Hevy entry so we don't double-count strength sessions
+    # that are logged in both Hevy and Strava.
+    hevy_days: set = set()
     day_map: dict = {}
 
     for w in hevy_list:
         d = w.start_time.date().isoformat()
-        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "types": set(), "count": 0})
+        hevy_days.add(d)
+        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "total_minutes": 0.0, "types": set(), "count": 0})
         entry["hevy_volume_lbs"] += w.volume_lbs or 0
+        entry["total_minutes"] += (w.duration_s or 0) / 60
         entry["types"].add("strength")
         entry["count"] += 1
 
     for a in strava_list:
         d = a.start_date.date().isoformat()
-        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "types": set(), "count": 0})
-        entry["cardio_minutes"] += (a.moving_time_s or 0) / 60
-        entry["types"].add("cardio")
+        is_strength = _is_strava_strength(a)
+        # Skip Strava strength activities on days already covered by Hevy to avoid double-counting
+        if is_strength and d in hevy_days:
+            continue
+        entry = day_map.setdefault(d, {"hevy_volume_lbs": 0.0, "cardio_minutes": 0.0, "total_minutes": 0.0, "types": set(), "count": 0})
+        mins = (a.moving_time_s or 0) / 60
+        entry["cardio_minutes"] += mins
+        entry["total_minutes"] += mins
+        entry["types"].add("strength" if is_strength else "cardio")
         entry["count"] += 1
 
     return [
@@ -172,6 +183,7 @@ def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
             "count": v["count"],
             "hevy_volume_lbs": round(v["hevy_volume_lbs"], 1),
             "cardio_minutes": round(v["cardio_minutes"], 1),
+            "total_minutes": round(v["total_minutes"], 1),
             "types": sorted(v["types"]),
         }
         for d, v in sorted(day_map.items())

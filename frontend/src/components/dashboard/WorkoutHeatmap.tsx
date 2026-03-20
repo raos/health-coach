@@ -13,12 +13,10 @@ function toLocalIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function intensityClass(score: number): string {
-  if (score <= 0) return "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700";
-  if (score < 0.25) return "bg-green-200 dark:bg-green-950";
-  if (score < 0.5)  return "bg-green-300 dark:bg-green-800";
-  if (score < 0.75) return "bg-green-500 dark:bg-green-600";
-  return "bg-green-600 dark:bg-green-500";
+function workoutClass(hasWorkout: boolean): string {
+  return hasWorkout
+    ? "bg-green-500 dark:bg-green-500"
+    : "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700";
 }
 
 type Cell = {
@@ -29,7 +27,7 @@ type Cell = {
 };
 
 export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
-  const { grid, streak, totalSessions, maxScore, monthLabels } = useMemo(() => {
+  const { grid, streak, totalSessions, monthLabels } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayIso = toLocalIso(today);
@@ -48,9 +46,6 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
     const dayMap = new Map<string, WorkoutDay>();
     for (const d of data) dayMap.set(d.date, d);
 
-    // Raw score per day = hevy_volume_lbs/1000 + cardio_minutes (normalisation units)
-    const rawScore = (w: WorkoutDay) => w.hevy_volume_lbs / 1000 + w.cardio_minutes;
-    const maxS = data.reduce((m, d) => Math.max(m, rawScore(d)), 0);
 
     // Build 12 × 7 grid
     const gridData: Cell[][] = [];
@@ -94,7 +89,7 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
 
     const totalSessions = data.reduce((s, d) => s + d.count, 0);
 
-    return { grid: gridData, streak, totalSessions, maxScore: maxS, monthLabels: mLabels };
+    return { grid: gridData, streak, totalSessions, monthLabels: mLabels };
   }, [data, weeks]);
 
   function tooltip(cell: Cell): string {
@@ -105,22 +100,18 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
     const parts: string[] = [];
     if (w.hevy_volume_lbs > 0) parts.push(`Strength: ${w.hevy_volume_lbs.toLocaleString()} lbs`);
     if (w.cardio_minutes > 0) parts.push(`Cardio: ${Math.round(w.cardio_minutes)} min`);
-    return `${label} — ${parts.join(" + ")}`;
+    const totalMin = Math.round(w.total_minutes);
+    return `${label} — ${parts.join(" + ")} (${totalMin} min total)`;
   }
 
   function cellColor(cell: Cell): string {
     if (cell.isFuture) return "bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800";
-    if (!cell.workout) return intensityClass(0);
-    const raw = cell.workout.hevy_volume_lbs / 1000 + cell.workout.cardio_minutes;
-    return intensityClass(maxScore > 0 ? raw / maxScore : 0);
+    return workoutClass(cell.workout !== null);
   }
 
   const LEGEND = [
-    "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700",
-    "bg-green-200 dark:bg-green-950",
-    "bg-green-300 dark:bg-green-800",
-    "bg-green-500 dark:bg-green-600",
-    "bg-green-600 dark:bg-green-500",
+    { cls: "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700", label: "Rest" },
+    { cls: "bg-green-500 dark:bg-green-500", label: "Workout" },
   ];
 
   return (
@@ -175,12 +166,13 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-1.5 mt-3 justify-end">
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">Less</span>
-        {LEGEND.map((cls, i) => (
-          <div key={i} className={`w-3 h-3 rounded-sm ${cls}`} />
+      <div className="flex items-center gap-2 mt-3 justify-end">
+        {LEGEND.map(({ cls, label }) => (
+          <div key={label} className="flex items-center gap-1">
+            <div className={`w-3 h-3 rounded-sm ${cls}`} />
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">{label}</span>
+          </div>
         ))}
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">More</span>
       </div>
     </div>
   );
