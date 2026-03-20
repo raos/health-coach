@@ -76,15 +76,42 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
       return "";
     });
 
-    // Streak: consecutive workout days ending at today (or yesterday if today is rest)
+    // Streak: consecutive weeks (ending this week or last) with ≥3 workouts
+    // Build a map of week-monday → session count
+    const weekCounts = new Map<string, number>();
+    for (const d of data) {
+      const dt = new Date(d.date + "T00:00:00");
+      const dow = dt.getDay();
+      const daysToMon = dow === 0 ? 6 : dow - 1;
+      const mon = new Date(dt);
+      mon.setDate(dt.getDate() - daysToMon);
+      const key = toLocalIso(mon);
+      weekCounts.set(key, (weekCounts.get(key) ?? 0) + d.count);
+    }
+
+    // Walk back week by week from this week (or last week if this week not yet ≥3)
+    const todayDow = today.getDay();
+    const todayDaysToMon = todayDow === 0 ? 6 : todayDow - 1;
+    const curMon = new Date(today);
+    curMon.setDate(today.getDate() - todayDaysToMon);
+
+    // If current week hasn't hit 3 yet, start counting from last week
+    const thisWeekKey = toLocalIso(curMon);
+    const startMon = new Date(curMon);
+    if ((weekCounts.get(thisWeekKey) ?? 0) < 3) {
+      startMon.setDate(curMon.getDate() - 7);
+    }
+
     let streak = 0;
-    const cur = new Date(today);
-    if (!dayMap.has(todayIso)) cur.setDate(cur.getDate() - 1); // start from yesterday if no workout today
+    const scanMon = new Date(startMon);
     while (true) {
-      const iso = toLocalIso(cur);
-      if (!dayMap.has(iso)) break;
-      streak++;
-      cur.setDate(cur.getDate() - 1);
+      const key = toLocalIso(scanMon);
+      if ((weekCounts.get(key) ?? 0) >= 3) {
+        streak++;
+        scanMon.setDate(scanMon.getDate() - 7);
+      } else {
+        break;
+      }
     }
 
     const totalSessions = data.reduce((s, d) => s + d.count, 0);
@@ -126,7 +153,7 @@ export default function WorkoutHeatmap({ data, weeks = 12 }: Props) {
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{streak}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">day streak</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">week streak (3+ workouts)</p>
         </div>
       </div>
 

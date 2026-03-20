@@ -138,35 +138,23 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Charts Row */}
+          {/* Charts + Heatmap + Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2">
+            {/* Left column: Weight Chart → Heatmap → Activity Feed */}
+            <div className="lg:col-span-2 flex flex-col gap-4">
               <WeightChart data={weightTrend} />
+              <WorkoutHeatmap data={heatmapData} weeks={12} />
+              <ActivityFeed activities={activities} />
             </div>
-            <div>
+            {/* Right column: Goal Progress → Quick Weight Log */}
+            <div className="flex flex-col gap-4">
               <GoalProgress
                 bfCurrent={goalProgress?.bf_current ?? currentBF}
                 bfGoal={goalProgress?.bf_goal ?? 18}
                 vo2Current={goalProgress?.vo2_current ?? currentVO2}
                 vo2Goal={goalProgress?.vo2_goal ?? 50}
               />
-            </div>
-          </div>
-
-          {/* Activity + Quick Log Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2">
-              <ActivityFeed activities={activities} />
-            </div>
-            <div>
               <QuickWeightLog onLogged={fetchAll} />
-            </div>
-          </div>
-
-          {/* Workout Consistency Heatmap — same width as Activity Feed */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2">
-              <WorkoutHeatmap data={heatmapData} weeks={12} />
             </div>
           </div>
         </div>
