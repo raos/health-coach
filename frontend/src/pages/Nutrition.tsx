@@ -254,14 +254,18 @@ export default function Nutrition() {
     if (!showFoodLog) return;
     const dayDate = parsedPlan?.days[activeDay]?.day
       ? (() => {
-          // Compute the ISO date for the active day name from week_start
-          if (!parsedPlan?.week_start) return undefined;
           const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
           const dayIndex = weekDays.indexOf(parsedPlan.days[activeDay].day);
           if (dayIndex === -1) return undefined;
-          const ws = new Date(parsedPlan.week_start + "T00:00:00");
-          ws.setDate(ws.getDate() + dayIndex);
-          return ws.toISOString().slice(0, 10);
+          // Always use the current calendar week's Monday, not the meal plan's week_start
+          const today = new Date();
+          const todayDow = today.getDay() === 0 ? 6 : today.getDay() - 1; // Mon=0
+          const thisMonday = new Date(today);
+          thisMonday.setDate(today.getDate() - todayDow);
+          thisMonday.setHours(0, 0, 0, 0);
+          const d = new Date(thisMonday);
+          d.setDate(thisMonday.getDate() + dayIndex);
+          return d.toISOString().slice(0, 10);
         })()
       : undefined;
     setFoodLogLoading(true);
