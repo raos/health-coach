@@ -54,3 +54,8 @@ export async function getNutritionLog(date?: string): Promise<NutritionLogEntry[
   const res = await client.get("/api/nutrition/log", { params: date ? { date } : {} });
   return res.data;
 }
+
+export async function nutritionChat(message: string, sessionId = "nutrition-default"): Promise<string> {
+  const res = await client.post("/api/nutrition/chat", { message, session_id: sessionId });
+  return res.data.response;
+}

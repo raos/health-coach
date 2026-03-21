@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import MealPlan, UserProfile
+from database.models import MealPlan, UserProfile, CoachConversation
 from pydantic import BaseModel
 from schemas.nutrition import MealPlanResponse, RegenerateDayRequest, GenerateMealPlanRequest
 from services import claude_service
@@ -194,3 +194,31 @@ def email_meal_plan(db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
+
+
+class NutritionChatMessage(BaseModel):
+    message: str
+    session_id: str = "nutrition-default"
+
+
+@router.post("/chat")
+def nutrition_chat(payload: NutritionChatMessage, db: Session = Depends(get_db)):
+    if not __import__("config").settings.anthropic_api_key:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
+
+    history_rows = (
+        db.query(CoachConversation)
+        .filter(CoachConversation.session_id == payload.session_id)
+        .order_by(CoachConversation.created_at)
+        .limit(20)
+        .all()
+    )
+    history = [{"role": row.role, "content": row.content} for row in history_rows]
+
+    response = claude_service.chat_with_nutritionist(payload.message, history, db)
+
+    db.add(CoachConversation(session_id=payload.session_id, role="user", content=payload.message))
+    db.add(CoachConversation(session_id=payload.session_id, role="assistant", content=response))
+    db.commit()
+
+    return {"response": response}

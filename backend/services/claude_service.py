@@ -10,10 +10,10 @@ from sqlalchemy import desc
 from config import settings
 from database.models import (
     WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
-    HevyExerciseSet, UserProfile, TrainingPlan
+    HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog
 )
 from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
-from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT
+from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT, NUTRITIONIST_CHAT_SYSTEM
 from prompts.health_advisor_system import HEALTH_ADVISOR_SYSTEM_PROMPT
 
 
@@ -897,6 +897,73 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         model="claude-sonnet-4-6",
         max_tokens=1500,
         temperature=0.4,
+        system=system,
+        messages=messages,
+    )
+    for block in response.content:
+        if hasattr(block, "text"):
+            return block.text
+    return ""
+
+
+def chat_with_nutritionist(message: str, history: list, db: Session) -> str:
+    client = _get_client()
+    from datetime import date as _date
+
+    profile = db.query(UserProfile).first()
+    calorie_target = (profile.calorie_target if profile and profile.calorie_target else 2200)
+
+    # Today's food log
+    today = _date.today()
+    log_rows = (
+        db.query(NutritionLog)
+        .filter(NutritionLog.date == today)
+        .order_by(NutritionLog.logged_at)
+        .all()
+    )
+    if log_rows:
+        log_lines = [f"- {r.meal_type.capitalize()}: {r.name} — {r.kcal} kcal, P {r.protein_g}g, C {r.carbs_g}g, F {r.fat_g}g" for r in log_rows]
+        total_kcal = sum(r.kcal for r in log_rows)
+        total_p = round(sum(r.protein_g for r in log_rows))
+        total_c = round(sum(r.carbs_g for r in log_rows))
+        total_f = round(sum(r.fat_g for r in log_rows))
+        food_log_section = (
+            f"Today ({today.strftime('%A, %b %d')}):\n"
+            + "\n".join(log_lines)
+            + f"\nTotals so far: {total_kcal} kcal, P {total_p}g, C {total_c}g, F {total_f}g"
+        )
+    else:
+        food_log_section = f"Nothing logged yet today ({today.strftime('%A, %b %d')})."
+
+    # Active meal plan — summarise each day briefly
+    active_plan = db.query(MealPlan).filter(MealPlan.is_active == True).order_by(desc(MealPlan.generated_at)).first()
+    if active_plan:
+        try:
+            plan_data = json.loads(active_plan.plan_json)
+            day_summaries = []
+            for day in plan_data.get("days", []):
+                meals_str = ", ".join(
+                    f"{m['meal_type']}: {m['name']} ({m['kcal']} kcal)"
+                    for m in day.get("meals", [])
+                )
+                day_summaries.append(f"**{day['day']}** — {day.get('total_kcal', '?')} kcal | {meals_str}")
+            meal_plan_section = "\n".join(day_summaries)
+        except Exception:
+            meal_plan_section = "Meal plan data unavailable."
+    else:
+        meal_plan_section = "No active meal plan generated yet."
+
+    system = NUTRITIONIST_CHAT_SYSTEM.format(
+        calorie_target=calorie_target,
+        food_log_section=food_log_section,
+        meal_plan_section=meal_plan_section,
+    )
+
+    messages = history[-20:] + [{"role": "user", "content": message}]
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1500,
+        temperature=0.5,
         system=system,
         messages=messages,
     )

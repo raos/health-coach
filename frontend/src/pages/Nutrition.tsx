@@ -1,14 +1,20 @@
-import { useEffect, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog } from "../api/nutrition";
+import MarkdownRenderer from "../components/shared/MarkdownRenderer";
+import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog, nutritionChat } from "../api/nutrition";
 import type { NutritionLogEntry } from "../api/nutrition";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
-type Tab = "meal-plan" | "food-log" | "shopping-list";
+type Tab = "meal-plan" | "food-log" | "shopping-list" | "chat";
+
+interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+}
 
 interface Meal {
   meal_type: string;
@@ -234,6 +240,12 @@ export default function Nutrition() {
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [emailingList, setEmailingList] = useState(false);
   const [listEmailStatus, setListEmailStatus] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([
+    { role: "assistant", content: "Hi! I'm your personal nutritionist. I have access to your food log, meal plan, and health goals. Ask me about healthy eating habits, food swaps, eating out suggestions, or anything nutrition-related." }
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
   const [calorieTarget, setCalorieTarget] = useState(2200);
   const [showPrefs, setShowPrefs] = useState(false);
   const [breakfastPrefs, setBreakfastPrefs] = useState(
@@ -280,6 +292,26 @@ export default function Nutrition() {
       .catch(() => setFoodLog([]))
       .finally(() => setFoodLogLoading(false));
   }, [activeTab, foodLogDate]);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  async function sendChat() {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setChatLoading(true);
+    try {
+      const reply = await nutritionChat(msg);
+      setChatMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: "assistant", content: "Sorry, couldn't reach the nutritionist service. Make sure the backend is running." }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }
 
   async function handleEmail() {
     setEmailing(true);
@@ -368,6 +400,7 @@ export default function Nutrition() {
     { id: "meal-plan", label: "Meal Plan", icon: Salad },
     { id: "food-log", label: "Food Log", icon: ClipboardList },
     { id: "shopping-list", label: "Shopping List", icon: ShoppingCart },
+    { id: "chat", label: "Nutritionist", icon: MessageSquare },
   ];
 
   return (
@@ -671,6 +704,60 @@ export default function Nutrition() {
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Generate a meal plan to get your weekly shopping list.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Chat tab ── */}
+      {activeTab === "chat" && (
+        <div className="flex flex-col bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden" style={{ height: "600px" }}>
+          {/* Message list */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                  msg.role === "user"
+                    ? "bg-green-600 text-white rounded-br-sm"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-sm"
+                }`}>
+                  {msg.role === "assistant" ? (
+                    <MarkdownRenderer content={msg.content} />
+                  ) : (
+                    msg.content
+                  )}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-bl-sm px-4 py-3">
+                  <div className="flex gap-1 items-center h-4">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Input bar */}
+          <div className="border-t border-gray-200 dark:border-gray-700 p-3 flex gap-2">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendChat()}
+              placeholder="Ask about healthy eating, food swaps, eating out..."
+              className="flex-1 px-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
+            />
+            <button
+              onClick={sendChat}
+              disabled={!chatInput.trim() || chatLoading}
+              className="px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </PageWrapper>
