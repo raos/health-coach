@@ -226,6 +226,19 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {},
             },
         ),
+        types.Tool(
+            name="get_meal_plan_for_day",
+            description="Get the planned meals for a specific day from the active meal plan. Use this to answer 'what should I eat today?' or 'what's for dinner tonight?'",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "day": {
+                        "type": "string",
+                        "description": "Day of the week (e.g. 'Monday', 'Tuesday'). Defaults to today.",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -244,6 +257,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "get_health_recommendations": _get_health_recommendations,
         "log_weight": _log_weight,
         "sync_data": _sync_data,
+        "get_meal_plan_for_day": _get_meal_plan_for_day,
     }
     handler = handlers.get(name)
     if not handler:
@@ -716,6 +730,71 @@ async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
 
     text = f"Sync complete. Hevy: {results['hevy']}. Strava: {results['strava']}."
     return [types.TextContent(type="text", text=text)]
+
+
+async def _get_meal_plan_for_day(args: dict[str, Any]) -> list[types.TextContent]:
+    day_name = args.get("day") or datetime.today().strftime("%A")
+    # Normalise to title case so "monday" and "MONDAY" both work
+    day_name = day_name.strip().title()
+
+    db = SessionLocal()
+    try:
+        from sqlalchemy import desc as sa_desc
+        plan = (
+            db.query(MealPlan)
+            .filter(MealPlan.is_active == True)
+            .order_by(sa_desc(MealPlan.generated_at))
+            .first()
+        )
+        if not plan or not plan.plan_json:
+            return [types.TextContent(type="text", text="No active meal plan. Generate one from the Nutrition page.")]
+
+        plan_data = json.loads(plan.plan_json)
+        days = plan_data.get("days", [])
+        today_data = next((d for d in days if d.get("day", "").title() == day_name), None)
+
+        if not today_data:
+            available = ", ".join(d.get("day", "") for d in days)
+            return [types.TextContent(
+                type="text",
+                text=f"No meals planned for {day_name}. Available days: {available}.",
+            )]
+
+        meals = today_data.get("meals", [])
+        lines = [
+            f"Meal plan for {day_name}",
+            f"Daily target: {plan_data.get('daily_target_kcal', '?')} kcal",
+            f"Day totals: {today_data.get('total_kcal', '?')} kcal | "
+            f"P: {today_data.get('total_protein_g', '?')}g | "
+            f"C: {today_data.get('total_carbs_g', '?')}g | "
+            f"F: {today_data.get('total_fat_g', '?')}g",
+            "",
+        ]
+
+        MEAL_ORDER = ["breakfast", "lunch", "snack", "dinner", "dessert"]
+        meals_sorted = sorted(meals, key=lambda m: MEAL_ORDER.index(m.get("meal_type", "snack"))
+                              if m.get("meal_type") in MEAL_ORDER else 99)
+
+        for meal in meals_sorted:
+            lines.append(f"[{meal.get('meal_type', '').upper()}] {meal.get('name', '')}")
+            lines.append(
+                f"  {meal.get('kcal', '?')} kcal | "
+                f"P: {meal.get('protein_g', '?')}g | "
+                f"C: {meal.get('carbs_g', '?')}g | "
+                f"F: {meal.get('fat_g', '?')}g"
+            )
+            if meal.get("prep_time_min"):
+                lines.append(f"  Prep time: {meal['prep_time_min']} min")
+            ingredients = meal.get("ingredients", [])
+            if ingredients:
+                lines.append(f"  Ingredients: {', '.join(ingredients)}")
+            if meal.get("bobby_parish_notes"):
+                lines.append(f"  Note: {meal['bobby_parish_notes']}")
+            lines.append("")
+    finally:
+        db.close()
+
+    return [types.TextContent(type="text", text="\n".join(lines))]
 
 
 # ── ASGI endpoint handlers ────────────────────────────────────────────────────
