@@ -110,7 +110,7 @@ export default function HealthAdvisor() {
   return (
     <PageWrapper
       title="Health Advisor"
-      subtitle="Peter Attia & Andrew Huberman philosophy · Longevity-focused insights"
+      subtitle=""
       actions={
         <button
           onClick={handleGenerate}

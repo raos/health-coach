@@ -424,7 +424,7 @@ export default function Nutrition() {
   return (
     <PageWrapper
       title="Nutrition Expert"
-      subtitle="South Indian vegetarian meal plans · Bobby Parish ingredients"
+      subtitle=""
       actions={
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">

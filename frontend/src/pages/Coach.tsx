@@ -261,7 +261,7 @@ export default function Coach() {
   return (
     <PageWrapper
       title="Personal Coach"
-      subtitle="Tonal-optimized training plans · Eugene Teo & Jeff Nippard methodology"
+      subtitle=""
       actions={
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg">
