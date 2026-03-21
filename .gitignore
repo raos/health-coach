@@ -28,3 +28,6 @@ frontend/dist/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code — local-only settings (personal permissions, not shared)
+.claude/settings.local.json
