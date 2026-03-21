@@ -50,10 +50,15 @@ def _require_auth():
 def garmin_status():
     if not garmin_service.is_configured():
         return {"configured": False, "authenticated": False}
-    return {
-        "configured": True,
-        "authenticated": garmin_service.is_authenticated(),
-    }
+    # Actually test the connection — login(tokenstore=) refreshes the OAuth2
+    # token if needed, or raises if the refresh token is also expired.
+    # If _client is already cached in memory this is near-instant.
+    try:
+        garmin_service._get_client()
+        authenticated = True
+    except Exception:
+        authenticated = False
+    return {"configured": True, "authenticated": authenticated}
 
 
 class TokenImportRequest(BaseModel):

@@ -197,19 +197,31 @@ export default function Settings() {
                   <div>
                     <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Garmin Connect</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {garminAuth?.authenticated
+                      {garminAuth === null
+                        ? "Checking connection…"
+                        : garminAuth.authenticated
                         ? "Session active — sleep, HRV, body battery available"
                         : integrationStatus?.garmin
-                        ? "Credentials set — click Connect to authenticate"
+                        ? "Session expired — click Reconnect to re-authenticate"
                         : "Add GARMIN_EMAIL + GARMIN_PASSWORD to .env"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {garminAuth?.authenticated ? (
-                    <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                      <Check className="w-3 h-3" /> Connected
-                    </span>
+                    <>
+                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                        <Check className="w-3 h-3" /> Connected
+                      </span>
+                      <button
+                        onClick={connectGarmin}
+                        disabled={garminConnecting}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400 text-xs font-medium rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-50"
+                      >
+                        {garminConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                        {garminConnecting ? "Connecting..." : "Reconnect"}
+                      </button>
+                    </>
                   ) : integrationStatus?.garmin ? (
                     <button
                       onClick={connectGarmin}
@@ -217,7 +229,7 @@ export default function Settings() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50"
                     >
                       {garminConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                      {garminConnecting ? "Connecting..." : "Connect"}
+                      {garminConnecting ? "Connecting..." : garminAuth !== null ? "Reconnect" : "Connect"}
                     </button>
                   ) : (
                     <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">

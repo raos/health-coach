@@ -11,7 +11,7 @@ from config import settings
 from database.models import (
     WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
     HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog,
-    Supplement, SupplementLog
+    Supplement, SupplementLog, GarminDailyCache
 )
 from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
 from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT, NUTRITIONIST_CHAT_SYSTEM
@@ -517,84 +517,119 @@ def generate_health_insights(db: Session) -> str:
 
     # Try to pull 30-day Garmin trend data
     # ── Garmin 30-day trends ──────────────────────────────────────────────────
+    # Try live API first; fall back to GarminDailyCache so insights always work
+    # even when the Garmin session has expired and needs reconnecting.
+
+    def _build_garmin_sections(sleep_range, steps_range, rhr_range):
+        sections = []
+        if sleep_range:
+            durations = [d["duration_hours"] for d in sleep_range]
+            scores = [d["score"] for d in sleep_range if d.get("score")]
+            deep_vals = [d["deep_min"] for d in sleep_range if d.get("deep_min")]
+            rem_vals = [d["rem_min"] for d in sleep_range if d.get("rem_min")]
+            avg_dur = round(sum(durations) / len(durations), 1)
+            avg_score = round(sum(scores) / len(scores)) if scores else None
+            avg_deep = round(sum(deep_vals) / len(deep_vals)) if deep_vals else None
+            avg_rem = round(sum(rem_vals) / len(rem_vals)) if rem_vals else None
+            below_7 = sum(1 for d in durations if d < 7)
+            below_65 = sum(1 for d in durations if d < 6.5)
+            recent = sleep_range[-7:]
+            recent_avg = round(sum(d["duration_hours"] for d in recent) / len(recent), 1)
+            trend = "improving" if recent_avg > avg_dur else "declining" if recent_avg < avg_dur - 0.2 else "stable"
+            last3_sleep = ", ".join(str(d["duration_hours"]) + "h" for d in sleep_range[-3:])
+            sections.append(
+                f"Sleep (last {len(sleep_range)} days): avg {avg_dur}h/night"
+                + (f", avg score {avg_score}/100" if avg_score else "")
+                + (f", avg deep {avg_deep}min" if avg_deep else "")
+                + (f", avg REM {avg_rem}min" if avg_rem else "")
+                + f". {below_7} nights <7h, {below_65} nights <6.5h."
+                + f" Last-7-day avg: {recent_avg}h (trend: {trend})."
+                + f" Last 3 nights: {last3_sleep}"
+            )
+        if steps_range:
+            steps_vals = [d["steps"] for d in steps_range]
+            avg_s = round(sum(steps_vals) / len(steps_vals))
+            recent_steps = steps_range[-7:]
+            recent_avg_s = round(sum(d["steps"] for d in recent_steps) / len(recent_steps))
+            over_10k = sum(1 for s in steps_vals if s >= 10000)
+            last3_steps = ", ".join(f"{d['steps']:,}" for d in steps_range[-3:])
+            sections.append(
+                f"Steps (last {len(steps_range)} days): avg {avg_s:,}/day"
+                + f", last-7-day avg {recent_avg_s:,}/day"
+                + f". {over_10k}/{len(steps_range)} days hit 10k goal."
+                + f" Last 3 days: {last3_steps}"
+            )
+        if rhr_range:
+            rhr_vals = [d["rhr"] for d in rhr_range]
+            avg_rhr = round(sum(rhr_vals) / len(rhr_vals))
+            recent_rhr = rhr_range[-7:]
+            recent_avg_rhr = round(sum(d["rhr"] for d in recent_rhr) / len(recent_rhr))
+            trend_rhr = "improving (lower)" if recent_avg_rhr < avg_rhr - 1 else "worsening (higher)" if recent_avg_rhr > avg_rhr + 1 else "stable"
+            sections.append(
+                f"Resting HR (last {len(rhr_range)} days): avg {avg_rhr}bpm"
+                + f", last-7-day avg {recent_avg_rhr}bpm (trend: {trend_rhr})"
+                + f". Range: {min(rhr_vals)}–{max(rhr_vals)}bpm."
+            )
+        return sections
+
     garmin_str = "Garmin data: Not connected (configure in Settings to enable sleep/HRV/body battery)."
+    garmin_source = "none"
+
+    # Attempt 1: live Garmin API
     try:
         from services.garmin_service import garmin_service
-        if garmin_service.is_authenticated():
-            sleep_range = garmin_service.get_sleep_range(30)
-            steps_range = garmin_service.get_steps_range(30)
-            rhr_range = garmin_service.get_resting_hr_range(30)
-
-            sections = []
-
-            if sleep_range:
-                durations = [d["duration_hours"] for d in sleep_range]
-                scores = [d["score"] for d in sleep_range if d.get("score")]
-                deep_vals = [d["deep_min"] for d in sleep_range if d.get("deep_min")]
-                rem_vals = [d["rem_min"] for d in sleep_range if d.get("rem_min")]
-                avg_dur = round(sum(durations) / len(durations), 1)
-                avg_score = round(sum(scores) / len(scores)) if scores else None
-                avg_deep = round(sum(deep_vals) / len(deep_vals)) if deep_vals else None
-                avg_rem = round(sum(rem_vals) / len(rem_vals)) if rem_vals else None
-                below_7 = sum(1 for d in durations if d < 7)
-                below_65 = sum(1 for d in durations if d < 6.5)
-                recent = sleep_range[-7:]
-                recent_avg = round(sum(d["duration_hours"] for d in recent) / len(recent), 1)
-                trend = "improving" if recent_avg > avg_dur else "declining" if recent_avg < avg_dur - 0.2 else "stable"
-                last3_sleep = ", ".join(str(d["duration_hours"]) + "h" for d in sleep_range[-3:])
-                sleep_section = (
-                    f"Sleep (last {len(sleep_range)} days): avg {avg_dur}h/night"
-                    + (f", avg score {avg_score}/100" if avg_score else "")
-                    + (f", avg deep {avg_deep}min" if avg_deep else "")
-                    + (f", avg REM {avg_rem}min" if avg_rem else "")
-                    + f". {below_7} nights <7h, {below_65} nights <6.5h."
-                    + f" Last-7-day avg: {recent_avg}h (trend: {trend})."
-                    + f" Last 3 nights: {last3_sleep}"
-                )
-                sections.append(sleep_section)
-
-            if steps_range:
-                steps_vals = [d["steps"] for d in steps_range]
-                avg_s = round(sum(steps_vals) / len(steps_vals))
-                recent_steps = steps_range[-7:]
-                recent_avg_s = round(sum(d["steps"] for d in recent_steps) / len(recent_steps))
-                over_10k = sum(1 for s in steps_vals if s >= 10000)
-                last3_steps = ", ".join(f"{d['steps']:,}" for d in steps_range[-3:])
-                steps_section = (
-                    f"Steps (last {len(steps_range)} days): avg {avg_s:,}/day"
-                    + f", last-7-day avg {recent_avg_s:,}/day"
-                    + f". {over_10k}/{len(steps_range)} days hit 10k goal."
-                    + f" Last 3 days: {last3_steps}"
-                )
-                sections.append(steps_section)
-
-            if rhr_range:
-                rhr_vals = [d["rhr"] for d in rhr_range]
-                avg_rhr = round(sum(rhr_vals) / len(rhr_vals))
-                recent_rhr = rhr_range[-7:]
-                recent_avg_rhr = round(sum(d["rhr"] for d in recent_rhr) / len(recent_rhr))
-                trend_rhr = "improving (lower)" if recent_avg_rhr < avg_rhr - 1 else "worsening (higher)" if recent_avg_rhr > avg_rhr + 1 else "stable"
-                rhr_section = (
-                    f"Resting HR (last {len(rhr_range)} days): avg {avg_rhr}bpm"
-                    + f", last-7-day avg {recent_avg_rhr}bpm (trend: {trend_rhr})"
-                    + f". Range: {min(rhr_vals)}–{max(rhr_vals)}bpm."
-                )
-                sections.append(rhr_section)
-
-            # Body battery (today's snapshot)
-            try:
-                bb_data = garmin_service.get_body_battery()
-                if bb_data and isinstance(bb_data, list):
-                    charged = [r.get("charged") or r.get("bodyBatteryLevel") for r in bb_data if r.get("charged") or r.get("bodyBatteryLevel")]
-                    if charged:
-                        sections.append(f"Body Battery (today): peak {max(charged)}, current {charged[-1]}")
-            except Exception:
-                pass
-
-            if sections:
-                garmin_str = "Garmin 30-day trends:\n" + "\n".join(f"- {s}" for s in sections)
+        garmin_service._get_client()  # raises if session expired
+        sleep_range = garmin_service.get_sleep_range(30)
+        steps_range = garmin_service.get_steps_range(30)
+        rhr_range = garmin_service.get_resting_hr_range(30)
+        sections = _build_garmin_sections(sleep_range, steps_range, rhr_range)
+        # Body battery (live only)
+        try:
+            bb_data = garmin_service.get_body_battery()
+            if bb_data and isinstance(bb_data, list):
+                charged = [r.get("charged") or r.get("bodyBatteryLevel") for r in bb_data if r.get("charged") or r.get("bodyBatteryLevel")]
+                if charged:
+                    sections.append(f"Body Battery (today): peak {max(charged)}, current {charged[-1]}")
+        except Exception:
+            pass
+        if sections:
+            garmin_str = "Garmin 30-day trends (live):\n" + "\n".join(f"- {s}" for s in sections)
+            garmin_source = "live"
     except Exception:
         pass
+
+    # Attempt 2: GarminDailyCache fallback (works even when session is expired)
+    if garmin_source == "none":
+        try:
+            cache_cutoff = date.today() - timedelta(days=30)
+            cache_rows = (
+                db.query(GarminDailyCache)
+                .filter(GarminDailyCache.date >= cache_cutoff)
+                .order_by(GarminDailyCache.date)
+                .all()
+            )
+            if cache_rows:
+                sleep_range = [
+                    {"date": r.date.isoformat(), "duration_hours": r.sleep_duration_hours,
+                     "score": r.sleep_score, "deep_min": r.deep_min, "rem_min": r.rem_min}
+                    for r in cache_rows if r.sleep_duration_hours
+                ]
+                steps_range = [
+                    {"date": r.date.isoformat(), "steps": r.steps}
+                    for r in cache_rows if r.steps
+                ]
+                rhr_range = [
+                    {"date": r.date.isoformat(), "rhr": r.resting_hr}
+                    for r in cache_rows if r.resting_hr
+                ]
+                sections = _build_garmin_sections(sleep_range, steps_range, rhr_range)
+                if sections:
+                    garmin_str = (
+                        "Garmin 30-day trends (from cache — session needs reconnecting in Settings):\n"
+                        + "\n".join(f"- {s}" for s in sections)
+                    )
+        except Exception:
+            pass
 
     # ── Food log (last 14 days from NutritionLog) ─────────────────────────────
     food_log_str = "Food log: No meals logged yet."
