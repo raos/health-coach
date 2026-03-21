@@ -28,6 +28,7 @@ class GarminService:
 
     def __init__(self):
         self._client = None
+        self._restore_lock = threading.Lock()  # prevents concurrent token-restore races
         self._state_queue: queue.Queue = queue.Queue()
         self._mfa_event = threading.Event()
         self._mfa_code: Optional[str] = None
@@ -167,20 +168,28 @@ class GarminService:
     def _get_client(self):
         if self._client is not None:
             return self._client
-        # Try to restore from saved tokens (e.g. after server restart).
-        # login(tokenstore=) loads tokens, refreshes the OAuth2 token if
-        # expired, and sets display_name — all needed for API URL construction.
-        token_dir = self._token_dir()
-        if os.path.exists(os.path.join(token_dir, "oauth2_token.json")) and self.is_configured():
-            try:
-                from garminconnect import Garmin
-                client = Garmin(settings.garmin_email, settings.garmin_password)
-                client.login(tokenstore=token_dir)
-                self._client = client
-                return client
-            except Exception as e:
-                raise RuntimeError(f"Garmin token restore failed: {e}") from e
-        raise RuntimeError("Garmin not authenticated. Go to Settings → Garmin Connect → Connect.")
+        # Lock prevents concurrent requests from all trying to restore the session
+        # simultaneously — only one thread does the network call, the rest wait
+        # and then pick up the cached _client.
+        with self._restore_lock:
+            # Re-check after acquiring the lock (another thread may have restored it)
+            if self._client is not None:
+                return self._client
+            token_dir = self._token_dir()
+            if os.path.exists(os.path.join(token_dir, "oauth2_token.json")) and self.is_configured():
+                try:
+                    from garminconnect import Garmin
+                    client = Garmin(settings.garmin_email, settings.garmin_password)
+                    # login(tokenstore=) loads tokens, refreshes the OAuth2 token if
+                    # needed, and sets display_name — required for all API URL construction.
+                    client.login(tokenstore=token_dir)
+                    self._client = client
+                    self._last_check_ok = True
+                    self._last_check_time = time.time()
+                    return client
+                except Exception as e:
+                    raise RuntimeError(f"Garmin token restore failed: {e}") from e
+            raise RuntimeError("Garmin not authenticated. Go to Settings → Garmin Connect → Connect.")
 
     # ── Data methods ──────────────────────────────────────────────────────────
 
