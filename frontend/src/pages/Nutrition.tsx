@@ -4,7 +4,7 @@ import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
-import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog, nutritionChat } from "../api/nutrition";
+import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog, nutritionChat, logMealFromDescription } from "../api/nutrition";
 import type { NutritionLogEntry } from "../api/nutrition";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
@@ -237,6 +237,9 @@ export default function Nutrition() {
   const [foodLog, setFoodLog] = useState<NutritionLogEntry[]>([]);
   const [foodLogLoading, setFoodLogLoading] = useState(false);
   const [foodLogDate, setFoodLogDate] = useState(todayISO);
+  const [quickLogText, setQuickLogText] = useState("");
+  const [quickLogging, setQuickLogging] = useState(false);
+  const [quickLogError, setQuickLogError] = useState("");
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [emailingList, setEmailingList] = useState(false);
   const [listEmailStatus, setListEmailStatus] = useState("");
@@ -296,6 +299,21 @@ export default function Nutrition() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
+
+  async function handleQuickLog() {
+    if (!quickLogText.trim() || quickLogging) return;
+    setQuickLogging(true);
+    setQuickLogError("");
+    try {
+      const entry = await logMealFromDescription(quickLogText.trim(), foodLogDate);
+      setFoodLog((prev) => [...prev, entry]);
+      setQuickLogText("");
+    } catch (e: any) {
+      setQuickLogError(e?.response?.data?.detail || "Failed to log meal. Try again.");
+    } finally {
+      setQuickLogging(false);
+    }
+  }
 
   async function sendChat() {
     const msg = chatInput.trim();
@@ -591,6 +609,31 @@ export default function Nutrition() {
             >
               <ChevronRight className="w-5 h-5" />
             </button>
+          </div>
+
+          {/* Quick log input */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Log a meal</p>
+            <div className="flex gap-2 items-start">
+              <textarea
+                value={quickLogText}
+                onChange={(e) => setQuickLogText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && e.metaKey && handleQuickLog()}
+                placeholder="Describe what you ate, e.g. '2 scrambled eggs with toast and a glass of milk for breakfast'"
+                rows={2}
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
+              />
+              <button
+                onClick={handleQuickLog}
+                disabled={!quickLogText.trim() || quickLogging}
+                className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${quickLogging ? "animate-spin" : ""}`} />
+                {quickLogging ? "Logging..." : "Log Food"}
+              </button>
+            </div>
+            {quickLogError && <p className="text-xs text-red-500 dark:text-red-400 mt-1.5">{quickLogError}</p>}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Claude will estimate the macros automatically · ⌘↵ to submit</p>
           </div>
 
           {/* Log entries */}

@@ -971,3 +971,39 @@ def chat_with_nutritionist(message: str, history: list, db: Session) -> str:
         if hasattr(block, "text"):
             return block.text
     return ""
+
+
+def parse_meal_description(description: str) -> dict:
+    """
+    Given a natural-language meal description, return estimated nutrition data as a dict:
+    { name, meal_type, kcal, protein_g, carbs_g, fat_g }
+    Raises ValueError on parse failure.
+    """
+    client = _get_client()
+    system = (
+        "You are a nutrition expert. The user will describe food they ate. "
+        "Return ONLY a JSON object (no markdown, no explanation) with these fields:\n"
+        '  "name": short descriptive meal name (max 60 chars)\n'
+        '  "meal_type": one of breakfast, lunch, dinner, snack, dessert\n'
+        '  "kcal": integer estimated calories\n'
+        '  "protein_g": float grams of protein\n'
+        '  "carbs_g": float grams of carbs\n'
+        '  "fat_g": float grams of fat\n'
+        "Be generous but realistic with estimates. The user is vegetarian + eggs, no meat/seafood."
+    )
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        temperature=0.2,
+        system=system,
+        messages=[{"role": "user", "content": description}],
+    )
+    raw = ""
+    for block in response.content:
+        if hasattr(block, "text"):
+            raw = block.text.strip()
+            break
+    if raw.startswith("```"):
+        raw = "\n".join(raw.split("\n")[1:])
+        raw = raw.rstrip("`").strip()
+    return json.loads(raw)

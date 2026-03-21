@@ -132,6 +132,57 @@ def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends
         raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
 
 
+class LogMealRequest(BaseModel):
+    description: str
+    date: Optional[str] = None  # ISO date, defaults to today
+
+
+@router.post("/log")
+def log_meal_from_description(payload: LogMealRequest, db: Session = Depends(get_db)):
+    """Parse a natural-language meal description with Claude and save to food log."""
+    if not __import__("config").settings.anthropic_api_key:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
+    from database.models import NutritionLog as NutritionLogModel
+    from datetime import date as date_type, datetime
+
+    try:
+        parsed = claude_service.parse_meal_description(payload.description)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse meal description: {e}")
+
+    target_date = date_type.fromisoformat(payload.date) if payload.date else date_type.today()
+
+    entry = NutritionLogModel(
+        date=target_date,
+        meal_type=parsed.get("meal_type", "snack"),
+        name=parsed.get("name", payload.description[:60]),
+        description=payload.description,
+        kcal=int(parsed.get("kcal", 0)),
+        protein_g=float(parsed.get("protein_g", 0)),
+        carbs_g=float(parsed.get("carbs_g", 0)),
+        fat_g=float(parsed.get("fat_g", 0)),
+        source="web",
+        logged_at=datetime.utcnow(),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    return {
+        "id": entry.id,
+        "date": entry.date.isoformat(),
+        "meal_type": entry.meal_type,
+        "name": entry.name,
+        "description": entry.description,
+        "kcal": entry.kcal,
+        "protein_g": entry.protein_g,
+        "carbs_g": entry.carbs_g,
+        "fat_g": entry.fat_g,
+        "source": entry.source,
+        "logged_at": entry.logged_at.isoformat(),
+    }
+
+
 @router.get("/log")
 def get_nutrition_log(
     log_date: str = Query(None, alias="date"),

@@ -59,3 +59,8 @@ export async function nutritionChat(message: string, sessionId = "nutrition-defa
   const res = await client.post("/api/nutrition/chat", { message, session_id: sessionId });
   return res.data.response;
 }
+
+export async function logMealFromDescription(description: string, date?: string): Promise<NutritionLogEntry> {
+  const res = await client.post("/api/nutrition/log", { description, date });
+  return res.data;
+}
