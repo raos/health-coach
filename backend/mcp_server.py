@@ -16,6 +16,14 @@ from mcp.server.sse import SseServerTransport
 from mcp import types
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import Scope, Receive, Send
+
+
+class _AlreadySentResponse(Response):
+    """Returned by MCP handlers after the transport has already written the response.
+    Starlette calls await response(...) after the handler returns — this no-ops that call."""
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        pass
 
 from config import settings
 from database.engine import SessionLocal
@@ -811,8 +819,10 @@ async def sse_endpoint(request: Request):
             streams[1],
             server.create_initialization_options(),
         )
+    return _AlreadySentResponse()
 
 
 async def messages_endpoint(request: Request):
     """Handle MCP JSON-RPC POST messages."""
     await sse.handle_post_message(request.scope, request.receive, request._send)
+    return _AlreadySentResponse()
