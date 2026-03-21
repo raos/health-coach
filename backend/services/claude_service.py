@@ -10,7 +10,8 @@ from sqlalchemy import desc
 from config import settings
 from database.models import (
     WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
-    HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog
+    HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog,
+    Supplement, SupplementLog
 )
 from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
 from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT, NUTRITIONIST_CHAT_SYSTEM
@@ -515,6 +516,7 @@ def generate_health_insights(db: Session) -> str:
 - Diet: Vegetarian + eggs, South Indian, ~{profile.calorie_target if profile else 2200} kcal/day"""
 
     # Try to pull 30-day Garmin trend data
+    # ── Garmin 30-day trends ──────────────────────────────────────────────────
     garmin_str = "Garmin data: Not connected (configure in Settings to enable sleep/HRV/body battery)."
     try:
         from services.garmin_service import garmin_service
@@ -579,8 +581,105 @@ def generate_health_insights(db: Session) -> str:
                 )
                 sections.append(rhr_section)
 
+            # Body battery (today's snapshot)
+            try:
+                bb_data = garmin_service.get_body_battery()
+                if bb_data and isinstance(bb_data, list):
+                    charged = [r.get("charged") or r.get("bodyBatteryLevel") for r in bb_data if r.get("charged") or r.get("bodyBatteryLevel")]
+                    if charged:
+                        sections.append(f"Body Battery (today): peak {max(charged)}, current {charged[-1]}")
+            except Exception:
+                pass
+
             if sections:
                 garmin_str = "Garmin 30-day trends:\n" + "\n".join(f"- {s}" for s in sections)
+    except Exception:
+        pass
+
+    # ── Food log (last 14 days from NutritionLog) ─────────────────────────────
+    food_log_str = "Food log: No meals logged yet."
+    try:
+        food_cutoff = date.today() - timedelta(days=14)
+        food_logs = (
+            db.query(NutritionLog)
+            .filter(NutritionLog.date >= food_cutoff)
+            .order_by(NutritionLog.date)
+            .all()
+        )
+        if food_logs:
+            from collections import defaultdict
+            daily: dict = defaultdict(lambda: {"kcal": 0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0, "meals": 0})
+            for entry in food_logs:
+                d_key = str(entry.date)
+                daily[d_key]["kcal"] += entry.kcal
+                daily[d_key]["protein_g"] += entry.protein_g
+                daily[d_key]["carbs_g"] += entry.carbs_g
+                daily[d_key]["fat_g"] += entry.fat_g
+                daily[d_key]["meals"] += 1
+            days_logged = len(daily)
+            avg_kcal = round(sum(v["kcal"] for v in daily.values()) / days_logged)
+            avg_prot = round(sum(v["protein_g"] for v in daily.values()) / days_logged)
+            avg_carbs = round(sum(v["carbs_g"] for v in daily.values()) / days_logged)
+            avg_fat = round(sum(v["fat_g"] for v in daily.values()) / days_logged)
+            target_kcal = profile.calorie_target if profile else 2200
+            over_target = sum(1 for v in daily.values() if v["kcal"] > target_kcal)
+            under_target = sum(1 for v in daily.values() if v["kcal"] < target_kcal * 0.85)
+            food_log_str = (
+                f"Food log (last 14 days, {days_logged} days with data): "
+                f"avg {avg_kcal} kcal/day (target {target_kcal}), "
+                f"avg protein {avg_prot}g, carbs {avg_carbs}g, fat {avg_fat}g. "
+                f"{over_target} days over target, {under_target} days >15% under target."
+            )
+    except Exception:
+        pass
+
+    # ── Supplement log (last 7 days) ──────────────────────────────────────────
+    supplement_str = "Supplements: None configured yet."
+    try:
+        active_supps = db.query(Supplement).filter(Supplement.is_active == True).all()
+        if active_supps:
+            supp_cutoff = date.today() - timedelta(days=7)
+            supp_logs = (
+                db.query(SupplementLog)
+                .filter(SupplementLog.date >= supp_cutoff)
+                .all()
+            )
+            lines = []
+            for s in active_supps:
+                taken_days = sum(1 for l in supp_logs if l.supplement_id == s.id)
+                pct = round(taken_days / 7 * 100)
+                label = f"{s.name}"
+                if s.dosage:
+                    label += f" ({s.dosage})"
+                lines.append(f"{label}: taken {taken_days}/7 days ({pct}%)")
+            supplement_str = "Supplements (last 7 days adherence):\n" + "\n".join(f"- {l}" for l in lines)
+    except Exception:
+        pass
+
+    # ── Workouts (last 14 days from Hevy) ────────────────────────────────────
+    workout_str = "Workouts: No workout data available yet."
+    try:
+        workout_cutoff = date.today() - timedelta(days=14)
+        recent_workouts = (
+            db.query(HevyWorkout)
+            .filter(HevyWorkout.start_time >= workout_cutoff)
+            .order_by(HevyWorkout.start_time)
+            .all()
+        )
+        if recent_workouts:
+            workout_lines = []
+            for w in recent_workouts:
+                duration_min = round((w.duration_seconds or 0) / 60)
+                vol = f"{w.volume_lbs:.0f} lbs" if w.volume_lbs else "?"
+                workout_lines.append(
+                    f"{w.start_time.strftime('%b %d')} — {w.title or 'Workout'} ({duration_min} min, {vol} volume)"
+                )
+            sessions_per_week = round(len(recent_workouts) / 2, 1)
+            workout_str = (
+                f"Strength workouts (last 14 days): {len(recent_workouts)} sessions "
+                f"(~{sessions_per_week}/week avg).\n"
+                + "\n".join(f"- {l}" for l in workout_lines)
+            )
     except Exception:
         pass
 
@@ -589,24 +688,40 @@ def generate_health_insights(db: Session) -> str:
 - ALMI: {latest_dexa.almi if latest_dexa else 8.6} kg/m² (target: 9.5)
 - FFMI: {latest_dexa.ffmi if latest_dexa else 19.7} kg/m² (target: 21.0)
 - T-Score (bone density): {latest_dexa.t_score if latest_dexa else 0.50}
-- {garmin_str}"""
+
+{garmin_str}
+
+{food_log_str}
+
+{supplement_str}
+
+{workout_str}"""
 
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
     measurement_note = _measurement_instruction(measurement_system)
 
+    calorie_target = profile.calorie_target if profile else 2200
+
     system = HEALTH_ADVISOR_SYSTEM_PROMPT.format(
         user_profile=user_profile_str,
         health_data=health_data_str,
+        calorie_target=calorie_target,
     ) + f"\n\n## Units\n{measurement_note}"
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=3500,
+        max_tokens=4096,
         temperature=0.2,
         system=system,
         messages=[{
             "role": "user",
-            "content": "Analyze my health data and provide specific, actionable insights following the Attia/Huberman framework. Use all the 30-day trend data provided — reference specific numbers, trends (improving/declining/stable), nights below targets, and recent patterns. Be direct and data-driven."
+            "content": (
+                "Analyze my health data and provide specific, actionable insights. "
+                "Cover all six sections: Sleep Quality, Cardiovascular Health, Body Composition, "
+                "Training & Recovery, Nutrition, and Supplement Adherence. "
+                "Use the actual numbers provided — reference 30-day and 7-day averages, trends, "
+                "workout frequency, calorie adherence, and supplement consistency. Be direct and data-driven."
+            )
         }],
     )
 
