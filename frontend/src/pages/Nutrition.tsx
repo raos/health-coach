@@ -423,72 +423,8 @@ export default function Nutrition() {
 
   return (
     <PageWrapper title="Nutrition Expert">
-      {/* Toolbar row — sits below the title on its own line */}
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <input
-            type="number"
-            min={1200}
-            max={4000}
-            step={50}
-            value={calorieTarget}
-            onChange={(e) => setCalorieTarget(Number(e.target.value))}
-            className="w-20 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
-          />
-          <span className="text-sm text-gray-500">kcal/day</span>
-        </div>
-        <button
-          onClick={() => setShowPrefs(!showPrefs)}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${showPrefs ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
-        >
-          <Settings2 className="w-4 h-4" />
-          Preferences
-        </button>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
-          {generating ? "Generating..." : "Generate Meal Plan"}
-        </button>
-        <button
-          onClick={handleEmail}
-          disabled={emailing || !plan}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
-        >
-          <Mail className="w-4 h-4" />
-          {emailing ? "Sending..." : emailStatus || "Email Plan"}
-        </button>
-      </div>
-
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
       {loading && <LoadingSpinner />}
-
-      {/* Preferences panel */}
-      {showPrefs && (
-        <div className="mb-4 bg-white dark:bg-gray-800 border border-green-200 dark:border-green-700 rounded-xl p-4 space-y-4">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Meal Preferences</h3>
-            <p className="text-xs text-gray-400 dark:text-gray-500">These are sent to Claude when you generate a plan</p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Breakfast — what you like to eat</label>
-            <textarea value={breakfastPrefs} onChange={(e) => setBreakfastPrefs(e.target.value)} rows={4}
-              className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Lunch — what you typically eat</label>
-            <textarea value={lunchPrefs} onChange={(e) => setLunchPrefs(e.target.value)} rows={2}
-              className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dinner (also used for next day's lunch — cook once, eat twice)</label>
-            <textarea value={dinnerPrefs} onChange={(e) => setDinnerPrefs(e.target.value)} rows={3}
-              className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-          </div>
-        </div>
-      )}
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 mb-5">
@@ -511,6 +447,70 @@ export default function Nutrition() {
       {/* ── Meal Plan tab ── */}
       {activeTab === "meal-plan" && (
         <>
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={1200}
+                max={4000}
+                step={50}
+                value={calorieTarget}
+                onChange={(e) => setCalorieTarget(Number(e.target.value))}
+                className="w-20 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+              />
+              <span className="text-sm text-gray-500">kcal/day</span>
+            </div>
+            <button
+              onClick={() => setShowPrefs(!showPrefs)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${showPrefs ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
+            >
+              <Settings2 className="w-4 h-4" />
+              Preferences
+            </button>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
+              {generating ? "Generating..." : "Generate Meal Plan"}
+            </button>
+            <button
+              onClick={handleEmail}
+              disabled={emailing || !plan}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            >
+              <Mail className="w-4 h-4" />
+              {emailing ? "Sending..." : emailStatus || "Email Plan"}
+            </button>
+          </div>
+
+          {/* Preferences panel */}
+          {showPrefs && (
+            <div className="mb-4 bg-white dark:bg-gray-800 border border-green-200 dark:border-green-700 rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Meal Preferences</h3>
+                <p className="text-xs text-gray-400 dark:text-gray-500">These are sent to Claude when you generate a plan</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Breakfast — what you like to eat</label>
+                <textarea value={breakfastPrefs} onChange={(e) => setBreakfastPrefs(e.target.value)} rows={4}
+                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Lunch — what you typically eat</label>
+                <textarea value={lunchPrefs} onChange={(e) => setLunchPrefs(e.target.value)} rows={2}
+                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dinner (also used for next day's lunch — cook once, eat twice)</label>
+                <textarea value={dinnerPrefs} onChange={(e) => setDinnerPrefs(e.target.value)} rows={3}
+                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
+              </div>
+            </div>
+          )}
+
           {!loading && !plan && (
             <div className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-12 text-center">
               <Salad className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
