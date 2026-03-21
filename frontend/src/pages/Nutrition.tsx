@@ -217,7 +217,10 @@ function formatDisplayDate(iso: string): string {
 export default function Nutrition() {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [parsedPlan, setParsedPlan] = useState<ParsedMealPlan | null>(null);
-  const [activeDay, setActiveDay] = useState(0);
+  const [activeDay, setActiveDay] = useState(() => {
+    const dow = new Date().getDay(); // 0=Sun … 6=Sat
+    return dow === 0 ? 6 : dow - 1; // Mon=0 … Sun=6
+  });
   const [activeTab, setActiveTab] = useState<Tab>("meal-plan");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -255,7 +258,14 @@ export default function Nutrition() {
       .then((p) => {
         if (p) {
           setPlan(p);
-          try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
+          try {
+            const parsed = JSON.parse(p.plan_json);
+            setParsedPlan(parsed);
+            // Clamp to last day if plan has fewer days than today's index
+            const dow = new Date().getDay();
+            const todayIdx = dow === 0 ? 6 : dow - 1;
+            setActiveDay(Math.min(todayIdx, parsed.days.length - 1));
+          } catch {}
         }
       })
       .catch(() => {})
