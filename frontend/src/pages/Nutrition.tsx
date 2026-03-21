@@ -51,51 +51,146 @@ const MEAL_COLORS: Record<string, string> = {
   dessert: "bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-700",
 };
 
+function parseQuantity(s: string): number {
+  if (s.includes("/")) {
+    const [a, b] = s.split("/");
+    return parseFloat(a) / parseFloat(b);
+  }
+  return parseFloat(s);
+}
+
+function scaleIngredient(ingredient: string, factor: number): string {
+  if (factor === 1) return ingredient;
+  const m = ingredient.match(/^(\d+(?:\/\d+)?(?:\.\d+)?)\s+(.*)/);
+  if (m) {
+    const scaled = parseQuantity(m[1]) * factor;
+    const display = Number(scaled.toFixed(1)).toString().replace(/\.0$/, "");
+    return `${display} ${m[2]}`;
+  }
+  return `${ingredient} (×${factor})`;
+}
+
+function MacroPills({ kcal, protein_g, carbs_g, fat_g, scale }: {
+  kcal: number; protein_g: number; carbs_g: number; fat_g: number; scale: number;
+}) {
+  const s = (v: number) => Math.round(v * scale);
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{s(kcal)} kcal</span>
+      <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">P {s(protein_g)}g</span>
+      <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full font-medium">C {s(carbs_g)}g</span>
+      <span className="text-xs bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full font-medium">F {s(fat_g)}g</span>
+    </div>
+  );
+}
+
+function MacroBar({ protein_g, carbs_g, fat_g }: { protein_g: number; carbs_g: number; fat_g: number }) {
+  const total = protein_g * 4 + carbs_g * 4 + fat_g * 9;
+  if (!total) return null;
+  const pPct = (protein_g * 4 / total) * 100;
+  const cPct = (carbs_g * 4 / total) * 100;
+  const fPct = (fat_g * 9 / total) * 100;
+  return (
+    <div className="mt-3">
+      <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
+        <div className="bg-blue-400 dark:bg-blue-500 rounded-l-full" style={{ width: `${pPct}%` }} title={`Protein ${pPct.toFixed(0)}%`} />
+        <div className="bg-orange-400 dark:bg-orange-500" style={{ width: `${cPct}%` }} title={`Carbs ${cPct.toFixed(0)}%`} />
+        <div className="bg-yellow-400 dark:bg-yellow-500 rounded-r-full" style={{ width: `${fPct}%` }} title={`Fat ${fPct.toFixed(0)}%`} />
+      </div>
+      <div className="flex gap-3 mt-1">
+        <span className="text-xs text-blue-600 dark:text-blue-400">Protein {pPct.toFixed(0)}%</span>
+        <span className="text-xs text-orange-600 dark:text-orange-400">Carbs {cPct.toFixed(0)}%</span>
+        <span className="text-xs text-yellow-600 dark:text-yellow-400">Fat {fPct.toFixed(0)}%</span>
+      </div>
+    </div>
+  );
+}
+
 function MealCard({ meal }: { meal: Meal }) {
   const [expanded, setExpanded] = useState(false);
+  const [servings, setServings] = useState(1);
+
   return (
     <div className={`border rounded-lg overflow-hidden ${MEAL_COLORS[meal.meal_type] || "bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600"}`}>
+      {/* Header */}
       <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between px-4 py-3 text-left">
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0 mr-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{meal.meal_type}</span>
             {meal.meal_type === "lunch" && meal.name.toLowerCase().startsWith("leftover") && (
-              <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">↩ leftover</span>
+              <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full">↩ leftover</span>
+            )}
+            {meal.prep_time_min && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">⏱ {meal.prep_time_min} min</span>
             )}
           </div>
           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm mt-0.5">{meal.name}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right text-xs text-gray-500 dark:text-gray-400">
-            <p className="font-medium text-gray-700 dark:text-gray-300">{meal.kcal} kcal</p>
-            <p>P:{meal.protein_g}g C:{meal.carbs_g}g F:{meal.fat_g}g</p>
+          <div className="mt-1.5">
+            <MacroPills
+              kcal={meal.kcal}
+              protein_g={meal.protein_g}
+              carbs_g={meal.carbs_g}
+              fat_g={meal.fat_g}
+              scale={servings}
+            />
           </div>
-          {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
         </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />}
       </button>
+
+      {/* Expanded body */}
       {expanded && (
         <div className="px-4 pb-4 border-t border-current border-opacity-20">
+          {/* Macro bar */}
+          <MacroBar protein_g={meal.protein_g * servings} carbs_g={meal.carbs_g * servings} fat_g={meal.fat_g * servings} />
+
+          {/* Servings scaler */}
           {meal.ingredients.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1.5">Ingredients</p>
-              <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-0.5">
-                {meal.ingredients.map((ing, i) => <li key={i} className="flex items-start gap-1.5"><span className="text-gray-400 dark:text-gray-500">•</span>{ing}</li>)}
-              </ul>
+            <div className="flex items-center gap-2 mt-3 mb-1">
+              <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">Ingredients</span>
+              <div className="ml-auto flex items-center gap-1.5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setServings(Math.max(1, servings - 1)); }}
+                  className="w-5 h-5 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-bold text-sm leading-none"
+                >−</button>
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 w-12 text-center">
+                  {servings} serving{servings !== 1 ? "s" : ""}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setServings(Math.min(8, servings + 1)); }}
+                  className="w-5 h-5 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-bold text-sm leading-none"
+                >+</button>
+              </div>
             </div>
           )}
+
+          {meal.ingredients.length > 0 && (
+            <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-0.5 mt-1.5">
+              {meal.ingredients.map((ing, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <span className="text-gray-400 dark:text-gray-500">•</span>
+                  {scaleIngredient(ing, servings)}
+                </li>
+              ))}
+            </ul>
+          )}
+
           {meal.recipe_steps.length > 0 && (
             <div className="mt-3">
               <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1.5">Instructions</p>
               <ol className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
-                {meal.recipe_steps.map((step, i) => <li key={i} className="flex gap-2"><span className="font-medium text-gray-400 dark:text-gray-500 flex-shrink-0">{i+1}.</span>{step}</li>)}
+                {meal.recipe_steps.map((step, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="font-medium text-gray-400 dark:text-gray-500 flex-shrink-0">{i + 1}.</span>
+                    {step}
+                  </li>
+                ))}
               </ol>
             </div>
           )}
+
           {meal.bobby_parish_notes && (
             <p className="mt-3 text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded p-2 italic">{meal.bobby_parish_notes}</p>
-          )}
-          {meal.prep_time_min && (
-            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">Prep time: {meal.prep_time_min} min</p>
           )}
         </div>
       )}
