@@ -9,11 +9,17 @@ export default function Settings() {
   const [stravaStatus, setStravaStatus] = useState<{ connected: boolean; athlete_name?: string } | null>(null);
   const [integrationStatus, setIntegrationStatus] = useState<{ garmin: boolean; hevy: boolean; anthropic: boolean; mcp_api_key?: string } | null>(null);
   const [mcpCopied, setMcpCopied] = useState(false);
-  const [garminAuth, setGarminAuth] = useState<{ authenticated: boolean } | null>(null);
+  const [garminAuth, setGarminAuth] = useState<{ authenticated: boolean; has_saved_tokens?: boolean } | null>(null);
   const [garminConnecting, setGarminConnecting] = useState(false);
   const [garminMfaPending, setGarminMfaPending] = useState(false);
   const [garminOtp, setGarminOtp] = useState("");
   const [garminError, setGarminError] = useState("");
+  const [showTokenImport, setShowTokenImport] = useState(false);
+  const [oauth1Json, setOauth1Json] = useState("");
+  const [oauth2Json, setOauth2Json] = useState("");
+  const [tokenImporting, setTokenImporting] = useState(false);
+  const [tokenImportError, setTokenImportError] = useState("");
+  const [tokenImportOk, setTokenImportOk] = useState(false);
 
   // Profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -141,6 +147,37 @@ export default function Settings() {
     }
   }
 
+  async function importTokens() {
+    setTokenImportError("");
+    setTokenImportOk(false);
+    let oauth1: object, oauth2: object;
+    try {
+      oauth1 = JSON.parse(oauth1Json);
+    } catch {
+      setTokenImportError("oauth1 JSON is invalid — check the format.");
+      return;
+    }
+    try {
+      oauth2 = JSON.parse(oauth2Json);
+    } catch {
+      setTokenImportError("oauth2 JSON is invalid — check the format.");
+      return;
+    }
+    setTokenImporting(true);
+    try {
+      await client.post("/api/garmin/import-tokens", { oauth1, oauth2 });
+      setTokenImportOk(true);
+      setShowTokenImport(false);
+      setOauth1Json("");
+      setOauth2Json("");
+      refreshGarminStatus();
+    } catch (e: any) {
+      setTokenImportError(e?.response?.data?.detail || "Import failed.");
+    } finally {
+      setTokenImporting(false);
+    }
+  }
+
   async function connectStrava() {
     const res = await client.get("/api/strava/auth/url");
     window.location.href = res.data.url;
@@ -265,7 +302,73 @@ export default function Settings() {
                 </div>
               )}
               {garminError && (
-                <p className="mt-2 text-xs text-red-600">{garminError}</p>
+                <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+                  <p className="text-xs text-red-700 dark:text-red-400">{garminError}</p>
+                  {(garminError.includes("429") || garminError.includes("rate-limit") || garminError.includes("Token Import")) && (
+                    <button
+                      onClick={() => { setShowTokenImport(true); setGarminError(""); }}
+                      className="mt-2 text-xs font-medium text-red-700 dark:text-red-400 underline"
+                    >
+                      Use Token Import instead →
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Token import — escape hatch when Railway IP is rate-limited */}
+              {(showTokenImport || (!garminAuth?.authenticated && garminAuth?.has_saved_tokens)) && (
+                <div className="mt-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Import tokens from local machine</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        Use this when Railway's IP is rate-limited by Garmin. Authenticate locally, then paste the token JSON files here.
+                      </p>
+                    </div>
+                    <button onClick={() => setShowTokenImport(false)} className="text-amber-500 hover:text-amber-700 flex-shrink-0">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="bg-amber-100 dark:bg-amber-900/40 rounded p-2 text-xs text-amber-800 dark:text-amber-300 font-mono space-y-1">
+                    <p className="font-sans font-semibold">On your local machine (already authenticated):</p>
+                    <p>cat backend/garmin_session/oauth1_token.json</p>
+                    <p>cat backend/garmin_session/oauth2_token.json</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">oauth1_token.json contents</label>
+                      <textarea
+                        value={oauth1Json}
+                        onChange={(e) => setOauth1Json(e.target.value)}
+                        placeholder='{"oauth_token": "...", "oauth_token_secret": "..."}'
+                        rows={3}
+                        className="w-full px-3 py-2 text-xs font-mono border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">oauth2_token.json contents</label>
+                      <textarea
+                        value={oauth2Json}
+                        onChange={(e) => setOauth2Json(e.target.value)}
+                        placeholder='{"access_token": "...", "refresh_token": "..."}'
+                        rows={3}
+                        className="w-full px-3 py-2 text-xs font-mono border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
+                      />
+                    </div>
+                    {tokenImportError && <p className="text-xs text-red-600 dark:text-red-400">{tokenImportError}</p>}
+                    {tokenImportOk && <p className="text-xs text-green-600 dark:text-green-400">Tokens imported successfully.</p>}
+                    <button
+                      onClick={importTokens}
+                      disabled={tokenImporting || !oauth1Json.trim() || !oauth2Json.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {tokenImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      {tokenImporting ? "Importing..." : "Import Tokens"}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 

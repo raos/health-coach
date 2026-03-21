@@ -8,6 +8,7 @@ Flow:
 import os
 import queue
 import threading
+import time
 from datetime import date, timedelta
 from typing import Optional
 
@@ -22,21 +23,51 @@ _TOKEN_DIR = os.environ.get(
 
 
 class GarminService:
+    # How long (seconds) to cache a failed connection check before retrying
+    _STATUS_TTL = 600  # 10 minutes
+
     def __init__(self):
         self._client = None
         self._state_queue: queue.Queue = queue.Queue()
         self._mfa_event = threading.Event()
         self._mfa_code: Optional[str] = None
+        self._last_check_time: float = 0.0   # epoch seconds of last status check
+        self._last_check_ok: bool = False     # result of last check
 
     def is_configured(self) -> bool:
         return bool(settings.garmin_email and settings.garmin_password)
 
     def is_authenticated(self) -> bool:
+        """Fast check — True only if a working client is already in memory."""
+        return self._client is not None
+
+    def has_saved_tokens(self) -> bool:
+        """True if token files exist on disk (may or may not still be valid)."""
+        return os.path.exists(os.path.join(_TOKEN_DIR, "oauth2_token.json"))
+
+    def check_connection(self) -> bool:
+        """
+        Test whether saved tokens actually work. Caches the result for
+        _STATUS_TTL seconds to avoid hammering Garmin's API on every page load.
+        Always returns True immediately if _client is already in memory.
+        """
         if self._client is not None:
             return True
-        # Optimistic: token files present means we can authenticate on first data call
-        token_dir = _TOKEN_DIR
-        return os.path.exists(os.path.join(token_dir, "oauth2_token.json"))
+        now = time.time()
+        if now - self._last_check_time < self._STATUS_TTL:
+            return self._last_check_ok   # return cached result, don't hit Garmin
+        # Actually test the connection
+        try:
+            self._get_client()
+            self._last_check_ok = True
+        except Exception:
+            self._last_check_ok = False
+        self._last_check_time = now
+        return self._last_check_ok
+
+    def invalidate_status_cache(self) -> None:
+        """Force the next check_connection() call to re-test (call after login/import)."""
+        self._last_check_time = 0.0
 
     def _token_dir(self) -> str:
         os.makedirs(_TOKEN_DIR, exist_ok=True)
@@ -54,6 +85,8 @@ class GarminService:
             client.login()
             client.garth.dump(self._token_dir())
             self._client = client
+            self._last_check_ok = True
+            self._last_check_time = time.time()
             self._state_queue.put("done")
         except Exception as e:
             self._state_queue.put(f"error:{e}")
@@ -86,6 +119,8 @@ class GarminService:
                 client = Garmin(settings.garmin_email, settings.garmin_password)
                 client.login(tokenstore=token_dir)
                 self._client = client
+                self._last_check_ok = True
+                self._last_check_time = time.time()
                 return "ok"
             except Exception:
                 pass  # tokens expired — fall through to fresh login

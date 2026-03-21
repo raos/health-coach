@@ -49,16 +49,15 @@ def _require_auth():
 @router.get("/status")
 def garmin_status():
     if not garmin_service.is_configured():
-        return {"configured": False, "authenticated": False}
-    # Actually test the connection — login(tokenstore=) refreshes the OAuth2
-    # token if needed, or raises if the refresh token is also expired.
-    # If _client is already cached in memory this is near-instant.
-    try:
-        garmin_service._get_client()
-        authenticated = True
-    except Exception:
-        authenticated = False
-    return {"configured": True, "authenticated": authenticated}
+        return {"configured": False, "authenticated": False, "has_saved_tokens": False}
+    # check_connection() is cached — won't hammer Garmin on every page load.
+    # If _client is already in memory it returns instantly.
+    authenticated = garmin_service.check_connection()
+    return {
+        "configured": True,
+        "authenticated": authenticated,
+        "has_saved_tokens": garmin_service.has_saved_tokens(),
+    }
 
 
 class TokenImportRequest(BaseModel):
@@ -75,8 +74,9 @@ def import_tokens(payload: TokenImportRequest):
         json.dump(payload.oauth1, f)
     with open(os.path.join(token_dir, "oauth2_token.json"), "w") as f:
         json.dump(payload.oauth2, f)
-    # Reset client so it picks up the new tokens on next data request
+    # Reset client and cache so next check re-tests with the new tokens
     garmin_service._client = None
+    garmin_service.invalidate_status_cache()
     return {"status": "ok", "token_dir": token_dir}
 
 
@@ -103,7 +103,18 @@ def verify_mfa(payload: MfaRequest):
         garmin_service.submit_mfa(payload.otp)
         return {"status": "ok"}
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        msg = str(e)
+        if "429" in msg or "too many" in msg.lower() or "Max retries" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Garmin is rate-limiting this server's IP address (429 Too Many Requests). "
+                    "This happens when too many login attempts come from the same IP. "
+                    "Please wait 24–48 hours, then try again — or use the Token Import option "
+                    "below to upload tokens from your local machine."
+                ),
+            )
+        raise HTTPException(status_code=400, detail=msg)
 
 
 @router.get("/sleep")
