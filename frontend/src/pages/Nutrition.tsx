@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send, Pill, Plus, Trash2 } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog, nutritionChat, logMealFromDescription } from "../api/nutrition";
 import type { NutritionLogEntry } from "../api/nutrition";
+import { getSupplements, createSupplement, deleteSupplement, getSupplementLog, logSupplementTaken, unlogSupplement } from "../api/supplements";
+import type { Supplement, SupplementLog } from "../api/supplements";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
-type Tab = "meal-plan" | "food-log" | "shopping-list" | "chat";
+type Tab = "meal-plan" | "food-log" | "supplements" | "shopping-list" | "chat";
 
 interface ChatMsg {
   role: "user" | "assistant";
@@ -240,6 +242,15 @@ export default function Nutrition() {
   const [quickLogText, setQuickLogText] = useState("");
   const [quickLogging, setQuickLogging] = useState(false);
   const [quickLogError, setQuickLogError] = useState("");
+  const [supplements, setSupplements] = useState<Supplement[]>([]);
+  const [supplementLog, setSupplementLog] = useState<SupplementLog[]>([]);
+  const [suppDate, setSuppDate] = useState(todayISO);
+  const [suppLoading, setSuppLoading] = useState(false);
+  const [showAddSupp, setShowAddSupp] = useState(false);
+  const [newSuppName, setNewSuppName] = useState("");
+  const [newSuppDosage, setNewSuppDosage] = useState("");
+  const [newSuppNotes, setNewSuppNotes] = useState("");
+  const [addingSupplement, setAddingSupplement] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [emailingList, setEmailingList] = useState(false);
   const [listEmailStatus, setListEmailStatus] = useState("");
@@ -299,6 +310,49 @@ export default function Nutrition() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeTab !== "supplements") return;
+    setSuppLoading(true);
+    Promise.all([getSupplements(), getSupplementLog(suppDate)])
+      .then(([supps, logs]) => { setSupplements(supps); setSupplementLog(logs); })
+      .catch(() => {})
+      .finally(() => setSuppLoading(false));
+  }, [activeTab, suppDate]);
+
+  async function handleToggleSupplement(supp: Supplement) {
+    const existingLog = supplementLog.find((l) => l.supplement_id === supp.id);
+    if (existingLog) {
+      await unlogSupplement(existingLog.id);
+      setSupplementLog((prev) => prev.filter((l) => l.id !== existingLog.id));
+    } else {
+      const log = await logSupplementTaken(supp.id, suppDate);
+      setSupplementLog((prev) => [...prev, log]);
+    }
+  }
+
+  async function handleAddSupplement() {
+    if (!newSuppName.trim()) return;
+    setAddingSupplement(true);
+    try {
+      const s = await createSupplement({
+        name: newSuppName.trim(),
+        dosage: newSuppDosage.trim() || undefined,
+        notes: newSuppNotes.trim() || undefined,
+      });
+      setSupplements((prev) => [...prev, s]);
+      setNewSuppName(""); setNewSuppDosage(""); setNewSuppNotes("");
+      setShowAddSupp(false);
+    } catch {} finally {
+      setAddingSupplement(false);
+    }
+  }
+
+  async function handleDeleteSupplement(id: number) {
+    await deleteSupplement(id);
+    setSupplements((prev) => prev.filter((s) => s.id !== id));
+    setSupplementLog((prev) => prev.filter((l) => l.supplement_id !== id));
+  }
 
   async function handleQuickLog() {
     if (!quickLogText.trim() || quickLogging) return;
@@ -417,6 +471,7 @@ export default function Nutrition() {
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "meal-plan", label: "Meal Plan", icon: Salad },
     { id: "food-log", label: "Food Log", icon: ClipboardList },
+    { id: "supplements", label: "Supplements", icon: Pill },
     { id: "shopping-list", label: "Shopping List", icon: ShoppingCart },
     { id: "chat", label: "Nutritionist", icon: MessageSquare },
   ];
@@ -680,6 +735,173 @@ export default function Nutrition() {
                       F {Math.round(foodLog.reduce((sum, e) => sum + e.fat_g, 0))}g
                     </span>
                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Supplements tab ── */}
+      {activeTab === "supplements" && (
+        <div className="space-y-4">
+          {/* Date navigator */}
+          <div className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3">
+            <button
+              onClick={() => setSuppDate((d) => offsetDate(d, -1))}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="font-medium text-gray-900 dark:text-gray-100">{formatDisplayDate(suppDate)}</span>
+              {suppDate !== todayISO() && (
+                <button onClick={() => setSuppDate(todayISO())} className="text-xs text-green-600 dark:text-green-400 hover:underline">Today</button>
+              )}
+            </div>
+            <button
+              onClick={() => setSuppDate((d) => offsetDate(d, 1))}
+              disabled={suppDate >= todayISO()}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-30"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Supplement list */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <Pill className="w-4 h-4" /> My Supplements
+              </h3>
+              <button
+                onClick={() => setShowAddSupp(!showAddSupp)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${showAddSupp ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Supplement
+              </button>
+            </div>
+
+            {/* Add form */}
+            {showAddSupp && (
+              <div className="px-5 py-4 bg-green-50 dark:bg-green-900/20 border-b border-green-100 dark:border-green-800 space-y-3">
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name *</label>
+                    <input
+                      value={newSuppName}
+                      onChange={(e) => setNewSuppName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddSupplement()}
+                      placeholder="e.g. Vitamin D3"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+                  <div className="w-36">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dosage</label>
+                    <input
+                      value={newSuppDosage}
+                      onChange={(e) => setNewSuppDosage(e.target.value)}
+                      placeholder="e.g. 2000 IU"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Notes (optional)</label>
+                  <input
+                    value={newSuppNotes}
+                    onChange={(e) => setNewSuppNotes(e.target.value)}
+                    placeholder="e.g. Take with food"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddSupplement}
+                    disabled={!newSuppName.trim() || addingSupplement}
+                    className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    {addingSupplement ? "Adding..." : "Add"}
+                  </button>
+                  <button
+                    onClick={() => { setShowAddSupp(false); setNewSuppName(""); setNewSuppDosage(""); setNewSuppNotes(""); }}
+                    className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Supplement rows */}
+            {suppLoading ? (
+              <div className="px-5 py-8 text-sm text-gray-400 dark:text-gray-500">Loading...</div>
+            ) : supplements.length === 0 ? (
+              <div className="px-5 py-10 text-center">
+                <Pill className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No supplements yet.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Click "Add Supplement" to get started.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                {supplements.map((supp) => {
+                  const taken = supplementLog.some((l) => l.supplement_id === supp.id);
+                  return (
+                    <li key={supp.id} className="flex items-center gap-4 px-5 py-3.5">
+                      <button
+                        onClick={() => handleToggleSupplement(supp)}
+                        className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                          taken
+                            ? "bg-green-500 border-green-500 text-white"
+                            : "border-gray-300 dark:border-gray-600 hover:border-green-400"
+                        }`}
+                      >
+                        {taken && (
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <span className={`font-medium text-sm ${taken ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-900 dark:text-gray-100"}`}>
+                          {supp.name}
+                        </span>
+                        {(supp.dosage || supp.notes) && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            {[supp.dosage, supp.notes].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </div>
+                      {taken && (
+                        <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">Taken</span>
+                      )}
+                      <button
+                        onClick={() => handleDeleteSupplement(supp.id)}
+                        className="flex-shrink-0 p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 rounded-lg transition-colors"
+                        title="Remove supplement"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* Daily summary */}
+            {supplements.length > 0 && (
+              <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {supplementLog.length} of {supplements.length} taken
+                </span>
+                <div className="flex gap-1">
+                  {supplements.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`w-2 h-2 rounded-full ${supplementLog.some((l) => l.supplement_id === s.id) ? "bg-green-500" : "bg-gray-200 dark:bg-gray-600"}`}
+                      title={s.name}
+                    />
+                  ))}
                 </div>
               </div>
             )}

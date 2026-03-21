@@ -203,3 +203,27 @@ class NutritionLog(Base):
     fat_g       = Column(Float, nullable=False)
     source      = Column(String(20), default="mcp")
     logged_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class Supplement(Base):
+    __tablename__ = "supplements"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(100), nullable=False)
+    dosage     = Column(String(50), nullable=True)   # e.g. "1000mg", "2 capsules"
+    notes      = Column(Text, nullable=True)
+    is_active  = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    logs = relationship("SupplementLog", back_populates="supplement", cascade="all, delete-orphan")
+
+
+class SupplementLog(Base):
+    __tablename__ = "supplement_logs"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    supplement_id = Column(Integer, ForeignKey("supplements.id"), nullable=False)
+    date          = Column(Date, nullable=False, index=True)
+    taken_at      = Column(DateTime, default=datetime.utcnow)
+
+    supplement = relationship("Supplement", back_populates="logs")

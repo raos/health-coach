@@ -31,7 +31,7 @@ from database.models import (
     WeightLog, HevyWorkout, HevyExerciseSet,
     TrainingPlan, GarminDailyCache, DexaScan,
     Vo2MaxLog, NutritionLog, HealthInsight, UserProfile,
-    MealPlan,
+    MealPlan, Supplement, SupplementLog,
 )
 
 server = Server("health-coach")
@@ -247,6 +247,37 @@ async def list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="log_supplement",
+            description="Mark one or more supplements as taken for today (or a specific date). Use this when the user says they took a supplement, vitamin, or medication.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "supplement_name": {
+                        "type": "string",
+                        "description": "Name of the supplement (e.g. 'Vitamin D', 'Omega-3'). Will match against existing supplements; creates a new one if not found.",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD). Defaults to today.",
+                    },
+                },
+                "required": ["supplement_name"],
+            },
+        ),
+        types.Tool(
+            name="get_supplement_log",
+            description="Show which supplements were taken on a given date and which were missed.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD). Defaults to today.",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -266,6 +297,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "log_weight": _log_weight,
         "sync_data": _sync_data,
         "get_meal_plan_for_day": _get_meal_plan_for_day,
+        "log_supplement": _log_supplement,
+        "get_supplement_log": _get_supplement_log,
     }
     handler = handlers.get(name)
     if not handler:
@@ -803,6 +836,96 @@ async def _get_meal_plan_for_day(args: dict[str, Any]) -> list[types.TextContent
         db.close()
 
     return [types.TextContent(type="text", text="\n".join(lines))]
+
+
+async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
+    supplement_name = args.get("supplement_name", "").strip()
+    if not supplement_name:
+        return [types.TextContent(type="text", text="supplement_name is required.")]
+
+    raw_date = args.get("date")
+    target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+
+    db = SessionLocal()
+    try:
+        # Find existing active supplement (case-insensitive)
+        supplement = db.query(Supplement).filter(
+            Supplement.is_active == True,
+        ).all()
+        match = next(
+            (s for s in supplement if s.name.lower() == supplement_name.lower()), None
+        )
+
+        if not match:
+            # Create it so future logs work too
+            match = Supplement(name=supplement_name)
+            db.add(match)
+            db.commit()
+            db.refresh(match)
+            created = True
+        else:
+            created = False
+
+        # Idempotent — don't duplicate
+        existing = db.query(SupplementLog).filter(
+            SupplementLog.supplement_id == match.id,
+            SupplementLog.date == target_date,
+        ).first()
+
+        if existing:
+            return [types.TextContent(
+                type="text",
+                text=f"✓ {match.name} was already logged for {target_date}.",
+            )]
+
+        log = SupplementLog(supplement_id=match.id, date=target_date)
+        db.add(log)
+        db.commit()
+
+        prefix = f"Added '{match.name}' to your supplement list and logged" if created else "Logged"
+        dosage_str = f" ({match.dosage})" if match.dosage else ""
+        return [types.TextContent(
+            type="text",
+            text=f"✓ {prefix} {match.name}{dosage_str} for {target_date}.",
+        )]
+    finally:
+        db.close()
+
+
+async def _get_supplement_log(args: dict[str, Any]) -> list[types.TextContent]:
+    raw_date = args.get("date")
+    target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+
+    db = SessionLocal()
+    try:
+        all_supplements = db.query(Supplement).filter(Supplement.is_active == True).all()
+        taken_ids = {
+            log.supplement_id
+            for log in db.query(SupplementLog).filter(SupplementLog.date == target_date).all()
+        }
+
+        if not all_supplements:
+            return [types.TextContent(type="text", text="No supplements configured yet.")]
+
+        taken = [s for s in all_supplements if s.id in taken_ids]
+        missed = [s for s in all_supplements if s.id not in taken_ids]
+
+        lines = [f"Supplement log for {target_date}", ""]
+        if taken:
+            lines.append("✓ Taken:")
+            for s in taken:
+                dosage = f" — {s.dosage}" if s.dosage else ""
+                lines.append(f"  • {s.name}{dosage}")
+        if missed:
+            lines.append("")
+            lines.append("✗ Not yet taken:")
+            for s in missed:
+                dosage = f" — {s.dosage}" if s.dosage else ""
+                lines.append(f"  • {s.name}{dosage}")
+
+        return [types.TextContent(type="text", text="\n".join(lines))]
+    finally:
+        db.close()
 
 
 # ── ASGI endpoint handlers ────────────────────────────────────────────────────
