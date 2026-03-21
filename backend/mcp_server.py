@@ -720,16 +720,13 @@ async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
 
 # ── ASGI endpoint handlers ────────────────────────────────────────────────────
 
-async def sse_endpoint(scope, receive, send):
+async def sse_endpoint(request: Request):
     """SSE handshake — validates MCP_API_KEY query param, then starts MCP session."""
-    request = Request(scope, receive)
     key = request.query_params.get("key", "")
     if not settings.mcp_api_key or key != settings.mcp_api_key:
-        response = Response("Unauthorized", status_code=401)
-        await response(scope, receive, send)
-        return
+        return Response("Unauthorized", status_code=401)
 
-    async with sse.connect_sse(scope, receive, send) as streams:
+    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
         await server.run(
             streams[0],
             streams[1],
@@ -737,6 +734,6 @@ async def sse_endpoint(scope, receive, send):
         )
 
 
-async def messages_endpoint(scope, receive, send):
+async def messages_endpoint(request: Request):
     """Handle MCP JSON-RPC POST messages."""
-    await sse.handle_post_message(scope, receive, send)
+    await sse.handle_post_message(request.scope, request.receive, request._send)
