@@ -35,3 +35,22 @@ export async function emailShoppingList(items: Record<string, string[]>) {
   const res = await client.post("/api/nutrition/email-shopping-list", { items });
   return res.data;
 }
+
+export interface NutritionLogEntry {
+  id: number;
+  date: string;
+  meal_type: string;
+  name: string;
+  description: string | null;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  source: string;
+  logged_at: string | null;
+}
+
+export async function getNutritionLog(date?: string): Promise<NutritionLogEntry[]> {
+  const res = await client.get("/api/nutrition/log", { params: date ? { date } : {} });
+  return res.data;
+}

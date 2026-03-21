@@ -1,7 +1,7 @@
 import json
 from datetime import date, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -130,6 +130,38 @@ def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
+
+
+@router.get("/log")
+def get_nutrition_log(
+    log_date: str = Query(None, alias="date"),
+    db: Session = Depends(get_db),
+):
+    from database.models import NutritionLog as NutritionLogModel
+    from datetime import date as date_type
+    target = date_type.fromisoformat(log_date) if log_date else date_type.today()
+    rows = (
+        db.query(NutritionLogModel)
+        .filter(NutritionLogModel.date == target)
+        .order_by(NutritionLogModel.logged_at)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "date": r.date.isoformat(),
+            "meal_type": r.meal_type,
+            "name": r.name,
+            "description": r.description,
+            "kcal": r.kcal,
+            "protein_g": r.protein_g,
+            "carbs_g": r.carbs_g,
+            "fat_g": r.fat_g,
+            "source": r.source,
+            "logged_at": r.logged_at.isoformat() if r.logged_at else None,
+        }
+        for r in rows
+    ]
 
 
 @router.post("/email-plan")

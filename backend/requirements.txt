@@ -12,3 +12,4 @@ PyJWT==2.10.1
 fpdf2==2.8.7
 markdown==3.10.2
 resend==2.10.0
+mcp>=1.0.0

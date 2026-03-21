@@ -187,3 +187,19 @@ class UserProfile(Base):
     measurement_system = Column(String(10), default="imperial")   # "imperial" or "metric"
     training_device = Column(String(20), default="tonal")         # "tonal", "gym", "bodyweight"
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NutritionLog(Base):
+    __tablename__ = "nutrition_logs"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    date        = Column(Date, nullable=False, index=True)
+    meal_type   = Column(String(20), nullable=False)
+    name        = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    kcal        = Column(Integer, nullable=False)
+    protein_g   = Column(Float, nullable=False)
+    carbs_g     = Column(Float, nullable=False)
+    fat_g       = Column(Float, nullable=False)
+    source      = Column(String(20), default="mcp")
+    logged_at   = Column(DateTime, default=datetime.utcnow)

@@ -7,7 +7,8 @@ import type { UserProfile } from "../types";
 
 export default function Settings() {
   const [stravaStatus, setStravaStatus] = useState<{ connected: boolean; athlete_name?: string } | null>(null);
-  const [integrationStatus, setIntegrationStatus] = useState<{ garmin: boolean; hevy: boolean; anthropic: boolean } | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<{ garmin: boolean; hevy: boolean; anthropic: boolean; mcp_api_key?: string } | null>(null);
+  const [mcpCopied, setMcpCopied] = useState(false);
   const [garminAuth, setGarminAuth] = useState<{ authenticated: boolean } | null>(null);
   const [garminConnecting, setGarminConnecting] = useState(false);
   const [garminMfaPending, setGarminMfaPending] = useState(false);
@@ -277,6 +278,45 @@ export default function Settings() {
                 </span>
               )}
             </div>
+
+            {/* Mobile Access (Claude.app MCP) */}
+            {integrationStatus?.mcp_api_key && (
+              <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">M</div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Mobile Access (Claude.app)</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Connect Claude.app to access your health data on the go</p>
+                  </div>
+                  <span className="ml-auto flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                    <Check className="w-3 h-3" /> Configured
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400">MCP SSE URL</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 break-all">
+                      {`${(client.defaults.baseURL || "").replace(/\/$/, "")}/mcp/sse?key=${integrationStatus.mcp_api_key}`}
+                    </code>
+                    <button
+                      onClick={() => {
+                        const url = `${(client.defaults.baseURL || "").replace(/\/$/, "")}/mcp/sse?key=${integrationStatus.mcp_api_key}`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          setMcpCopied(true);
+                          setTimeout(() => setMcpCopied(false), 2000);
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 whitespace-nowrap"
+                    >
+                      {mcpCopied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    In Claude.app: Settings → Integrations → Add Integration → paste this URL
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Patient Gateway */}
             <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg opacity-60">

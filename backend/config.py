@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     hevy_email: str = ""
     hevy_password: str = ""
 
+    # MCP remote server API key
+    mcp_api_key: str = ""
+
     # Email (Resend)
     resend_api_key: str = ""  # From resend.com — required for PDF email delivery
 

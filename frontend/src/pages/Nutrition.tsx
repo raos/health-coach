@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail } from "lucide-react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList } from "../api/nutrition";
+import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog } from "../api/nutrition";
+import type { NutritionLogEntry } from "../api/nutrition";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
@@ -209,6 +210,9 @@ export default function Nutrition() {
   const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
   const [showShopping, setShowShopping] = useState(false);
+  const [showFoodLog, setShowFoodLog] = useState(false);
+  const [foodLog, setFoodLog] = useState<NutritionLogEntry[]>([]);
+  const [foodLogLoading, setFoodLogLoading] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [emailingList, setEmailingList] = useState(false);
   const [listEmailStatus, setListEmailStatus] = useState("");
@@ -245,6 +249,27 @@ export default function Nutrition() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!showFoodLog) return;
+    const dayDate = parsedPlan?.days[activeDay]?.day
+      ? (() => {
+          // Compute the ISO date for the active day name from week_start
+          if (!parsedPlan?.week_start) return undefined;
+          const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+          const dayIndex = weekDays.indexOf(parsedPlan.days[activeDay].day);
+          if (dayIndex === -1) return undefined;
+          const ws = new Date(parsedPlan.week_start + "T00:00:00");
+          ws.setDate(ws.getDate() + dayIndex);
+          return ws.toISOString().slice(0, 10);
+        })()
+      : undefined;
+    setFoodLogLoading(true);
+    getNutritionLog(dayDate)
+      .then((entries) => setFoodLog(entries))
+      .catch(() => setFoodLog([]))
+      .finally(() => setFoodLogLoading(false));
+  }, [showFoodLog, activeDay, parsedPlan]);
 
   async function handleEmail() {
     setEmailing(true);
@@ -448,13 +473,22 @@ export default function Nutrition() {
                 {day.day.slice(0, 3)}
               </button>
             ))}
-            <button
-              onClick={() => setShowShopping(!showShopping)}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              Shopping List
-            </button>
+            <div className="ml-auto flex items-center gap-1.5">
+              <button
+                onClick={() => { setShowFoodLog(!showFoodLog); setShowShopping(false); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${showFoodLog ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                Food Log
+              </button>
+              <button
+                onClick={() => { setShowShopping(!showShopping); setShowFoodLog(false); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${showShopping ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                Shopping List
+              </button>
+            </div>
           </div>
 
           {/* Day macros summary */}
@@ -487,6 +521,61 @@ export default function Nutrition() {
           <div className="space-y-2">
             {sortedMeals?.map((meal, i) => <MealCard key={i} meal={meal} />)}
           </div>
+
+          {/* Food log */}
+          {showFoodLog && (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4" /> Food Log
+                </h3>
+              </div>
+              {foodLogLoading ? (
+                <p className="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+              ) : foodLog.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No meals logged for this date. Tell Claude on your phone what you ate.</p>
+              ) : (
+                <div className="space-y-2">
+                  {foodLog.map((entry) => (
+                    <div key={entry.id} className="flex items-start justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{entry.meal_type}</span>
+                          <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{entry.name}</span>
+                        </div>
+                        {entry.description && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{entry.description}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{entry.kcal} kcal</span>
+                        <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full">P {entry.protein_g}g</span>
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">C {entry.carbs_g}g</span>
+                        <span className="text-xs bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full">F {entry.fat_g}g</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Daily totals</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                        {foodLog.reduce((sum, e) => sum + e.kcal, 0)} kcal
+                      </span>
+                      <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full">
+                        P {Math.round(foodLog.reduce((sum, e) => sum + e.protein_g, 0))}g
+                      </span>
+                      <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
+                        C {Math.round(foodLog.reduce((sum, e) => sum + e.carbs_g, 0))}g
+                      </span>
+                      <span className="text-xs bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full">
+                        F {Math.round(foodLog.reduce((sum, e) => sum + e.fat_g, 0))}g
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Shopping list */}
           {showShopping && (

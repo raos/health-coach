@@ -44,6 +44,11 @@ def strava_auth_callback(code: str = Query(...), db: Session = Depends(get_db)):
     return RedirectResponse(url=f"{settings.frontend_url}/settings")
 
 
+# MCP remote server — API key auth (not JWT)
+from mcp_server import sse_endpoint, messages_endpoint
+app.add_route("/mcp/sse", sse_endpoint)
+app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
+
 # ── Protected routes (JWT required) ─────────────────────────────────────────
 _auth = [Depends(verify_token)]
 app.include_router(weight.router, dependencies=_auth)
@@ -69,4 +74,5 @@ def settings_status():
         "garmin": bool(settings.garmin_email and settings.garmin_password),
         "hevy": bool(settings.hevy_api_key),
         "anthropic": bool(settings.anthropic_api_key),
+        "mcp_api_key": settings.mcp_api_key,
     }
