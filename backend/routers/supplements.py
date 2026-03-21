@@ -18,6 +18,12 @@ class SupplementCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class SupplementUpdate(BaseModel):
+    name: Optional[str] = None
+    dosage: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class SupplementLogCreate(BaseModel):
     supplement_id: int
     date: Optional[str] = None   # ISO date; defaults to today
@@ -68,6 +74,23 @@ def create_supplement(payload: SupplementCreate, db: Session = Depends(get_db)):
         notes=payload.notes.strip() if payload.notes else None,
     )
     db.add(s)
+    db.commit()
+    db.refresh(s)
+    return _supplement_dict(s)
+
+
+@router.patch("/{supplement_id}")
+def update_supplement(supplement_id: int, payload: SupplementUpdate, db: Session = Depends(get_db)):
+    """Update name, dosage, or notes of a supplement."""
+    s = db.query(Supplement).filter(Supplement.id == supplement_id, Supplement.is_active == True).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Supplement not found")
+    if payload.name is not None:
+        s.name = payload.name.strip()
+    if payload.dosage is not None:
+        s.dosage = payload.dosage.strip() or None
+    if payload.notes is not None:
+        s.notes = payload.notes.strip() or None
     db.commit()
     db.refresh(s)
     return _supplement_dict(s)

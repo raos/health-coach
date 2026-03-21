@@ -30,6 +30,11 @@ export async function createSupplement(payload: {
   return res.data;
 }
 
+export async function updateSupplement(id: number, payload: { name?: string; dosage?: string; notes?: string }): Promise<Supplement> {
+  const res = await client.patch(`/api/supplements/${id}`, payload);
+  return res.data;
+}
+
 export async function deleteSupplement(id: number): Promise<void> {
   await client.delete(`/api/supplements/${id}`);
 }

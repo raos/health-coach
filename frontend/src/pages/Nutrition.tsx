@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send, Pill, Plus, Trash2 } from "lucide-react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send, Pill, Plus, Trash2, Pencil, Check, X } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emailShoppingList, getNutritionLog, nutritionChat, logMealFromDescription } from "../api/nutrition";
 import type { NutritionLogEntry } from "../api/nutrition";
-import { getSupplements, createSupplement, deleteSupplement, getSupplementLog, logSupplementTaken, unlogSupplement } from "../api/supplements";
+import { getSupplements, createSupplement, updateSupplement, deleteSupplement, getSupplementLog, logSupplementTaken, unlogSupplement } from "../api/supplements";
 import type { Supplement, SupplementLog } from "../api/supplements";
 import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
@@ -251,6 +251,10 @@ export default function Nutrition() {
   const [newSuppDosage, setNewSuppDosage] = useState("");
   const [newSuppNotes, setNewSuppNotes] = useState("");
   const [addingSupplement, setAddingSupplement] = useState(false);
+  const [editingSuppId, setEditingSuppId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDosage, setEditDosage] = useState("");
+  const [editNotes, setEditNotes] = useState("");
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [emailingList, setEmailingList] = useState(false);
   const [listEmailStatus, setListEmailStatus] = useState("");
@@ -352,6 +356,24 @@ export default function Nutrition() {
     await deleteSupplement(id);
     setSupplements((prev) => prev.filter((s) => s.id !== id));
     setSupplementLog((prev) => prev.filter((l) => l.supplement_id !== id));
+  }
+
+  function startEditSupplement(supp: Supplement) {
+    setEditingSuppId(supp.id);
+    setEditName(supp.name);
+    setEditDosage(supp.dosage ?? "");
+    setEditNotes(supp.notes ?? "");
+  }
+
+  async function handleSaveEdit() {
+    if (!editingSuppId || !editName.trim()) return;
+    const updated = await updateSupplement(editingSuppId, {
+      name: editName,
+      dosage: editDosage,
+      notes: editNotes,
+    });
+    setSupplements((prev) => prev.map((s) => (s.id === editingSuppId ? updated : s)));
+    setEditingSuppId(null);
   }
 
   async function handleQuickLog() {
@@ -846,42 +868,96 @@ export default function Nutrition() {
               <ul className="divide-y divide-gray-100 dark:divide-gray-700">
                 {supplements.map((supp) => {
                   const taken = supplementLog.some((l) => l.supplement_id === supp.id);
+                  const isEditing = editingSuppId === supp.id;
                   return (
-                    <li key={supp.id} className="flex items-center gap-4 px-5 py-3.5">
-                      <button
-                        onClick={() => handleToggleSupplement(supp)}
-                        className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                          taken
-                            ? "bg-green-500 border-green-500 text-white"
-                            : "border-gray-300 dark:border-gray-600 hover:border-green-400"
-                        }`}
-                      >
-                        {taken && (
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <span className={`font-medium text-sm ${taken ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-900 dark:text-gray-100"}`}>
-                          {supp.name}
-                        </span>
-                        {(supp.dosage || supp.notes) && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                            {[supp.dosage, supp.notes].filter(Boolean).join(" · ")}
-                          </p>
-                        )}
-                      </div>
-                      {taken && (
-                        <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">Taken</span>
+                    <li key={supp.id} className="px-5 py-3.5">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <input
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
+                              placeholder="Name"
+                              className="flex-1 px-3 py-1.5 text-sm border border-green-400 dark:border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                              autoFocus
+                            />
+                            <input
+                              value={editDosage}
+                              onChange={(e) => setEditDosage(e.target.value)}
+                              placeholder="Dosage"
+                              className="w-28 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              value={editNotes}
+                              onChange={(e) => setEditNotes(e.target.value)}
+                              placeholder="Notes (optional)"
+                              className="flex-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                            />
+                            <button
+                              onClick={handleSaveEdit}
+                              disabled={!editName.trim()}
+                              className="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors disabled:opacity-40"
+                              title="Save"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingSuppId(null)}
+                              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                              title="Cancel"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => handleToggleSupplement(supp)}
+                            className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                              taken
+                                ? "bg-green-500 border-green-500 text-white"
+                                : "border-gray-300 dark:border-gray-600 hover:border-green-400"
+                            }`}
+                          >
+                            {taken && (
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <span className={`font-medium text-sm ${taken ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-900 dark:text-gray-100"}`}>
+                              {supp.name}
+                            </span>
+                            {(supp.dosage || supp.notes) && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                {[supp.dosage, supp.notes].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                          {taken && (
+                            <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">Taken</span>
+                          )}
+                          <button
+                            onClick={() => startEditSupplement(supp)}
+                            className="flex-shrink-0 p-1.5 text-gray-300 dark:text-gray-600 hover:text-blue-500 dark:hover:text-blue-400 rounded-lg transition-colors"
+                            title="Edit supplement"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSupplement(supp.id)}
+                            className="flex-shrink-0 p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 rounded-lg transition-colors"
+                            title="Remove supplement"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
-                      <button
-                        onClick={() => handleDeleteSupplement(supp.id)}
-                        className="flex-shrink-0 p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 rounded-lg transition-colors"
-                        title="Remove supplement"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </li>
                   );
                 })}
