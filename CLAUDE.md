@@ -265,6 +265,9 @@ FRONTEND_URL=http://localhost:5173
 
 ## Adding New Features
 
+## API Integration section
+When working with external APIs (Garmin, Hevy, Strava), always inspect the actual API response structure before writing parsing code. Use a test call first, print the response, then build the handler.
+
 ### New API endpoint
 1. Add Pydantic schema to `backend/schemas/<domain>.py`
 2. Add route to `backend/routers/<domain>.py` (HTTP logic only)
@@ -272,6 +275,7 @@ FRONTEND_URL=http://localhost:5173
 4. Add API function to `frontend/src/api/<domain>.ts`
 5. Add TypeScript type to `frontend/src/types/index.ts` if needed
 6. If the endpoint must be public (e.g., called by a third-party OAuth redirect), register it directly on `app` in `main.py` before the `_auth` block — do NOT add it to a router that uses `dependencies=_auth`
+
 
 ### New Claude feature
 1. Add/edit system prompt in `backend/prompts/`
