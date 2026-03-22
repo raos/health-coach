@@ -45,6 +45,9 @@ def _migrate_user_profile_columns():
             "training_device": "TEXT DEFAULT 'tonal'",
             "training_plan_recipients": "TEXT DEFAULT ''",
             "meal_plan_recipients": "TEXT DEFAULT ''",
+            "breakfast_pref": "TEXT",
+            "lunch_pref": "TEXT",
+            "dinner_pref": "TEXT",
         }
         for col, definition in new_cols.items():
             if col not in existing:

@@ -186,6 +186,9 @@ class UserProfile(Base):
     email = Column(String(200), default="")
     measurement_system = Column(String(10), default="imperial")   # "imperial" or "metric"
     training_device = Column(String(20), default="tonal")         # "tonal", "gym", "bodyweight"
+    breakfast_pref = Column(Text, nullable=True)
+    lunch_pref = Column(Text, nullable=True)
+    dinner_pref = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

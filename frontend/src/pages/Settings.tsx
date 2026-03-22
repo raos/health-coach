@@ -589,17 +589,49 @@ export default function Settings() {
               {/* Nutrition */}
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Nutrition</h3>
-                <div className="w-40">
-                  <label className={labelClass}>Daily Calorie Target (kcal)</label>
-                  <input
-                    type="number"
-                    value={profileForm.calorie_target ?? ""}
-                    onChange={(e) => handleFieldChange("calorie_target", e.target.value ? parseInt(e.target.value, 10) : null)}
-                    step="50"
-                    min="1000"
-                    max="5000"
-                    className={inputClass}
-                  />
+                <div className="space-y-4">
+                  <div className="w-40">
+                    <label className={labelClass}>Daily Calorie Target (kcal)</label>
+                    <input
+                      type="number"
+                      value={profileForm.calorie_target ?? ""}
+                      onChange={(e) => handleFieldChange("calorie_target", e.target.value ? parseInt(e.target.value, 10) : null)}
+                      step="50"
+                      min="1000"
+                      max="5000"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Breakfast Preferences</label>
+                    <textarea
+                      rows={4}
+                      value={profileForm.breakfast_pref ?? ""}
+                      onChange={(e) => handleFieldChange("breakfast_pref", e.target.value || null)}
+                      className={inputClass}
+                      placeholder="Describe your breakfast preferences…"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Lunch Preferences</label>
+                    <textarea
+                      rows={2}
+                      value={profileForm.lunch_pref ?? ""}
+                      onChange={(e) => handleFieldChange("lunch_pref", e.target.value || null)}
+                      className={inputClass}
+                      placeholder="Describe your lunch preferences…"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Dinner Preferences</label>
+                    <textarea
+                      rows={3}
+                      value={profileForm.dinner_pref ?? ""}
+                      onChange={(e) => handleFieldChange("dinner_pref", e.target.value || null)}
+                      className={inputClass}
+                      placeholder="Describe your dinner preferences…"
+                    />
+                  </div>
                 </div>
               </div>
 

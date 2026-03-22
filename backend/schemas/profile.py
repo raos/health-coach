@@ -15,6 +15,9 @@ class UserProfileResponse(BaseModel):
     calorie_target: Optional[int]
     measurement_system: str = "imperial"
     training_device: str = "tonal"
+    breakfast_pref: Optional[str] = None
+    lunch_pref: Optional[str] = None
+    dinner_pref: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -30,3 +33,6 @@ class UserProfileUpdate(BaseModel):
     calorie_target: Optional[int] = None
     measurement_system: Optional[str] = None
     training_device: Optional[str] = None
+    breakfast_pref: Optional[str] = None
+    lunch_pref: Optional[str] = None
+    dinner_pref: Optional[str] = None

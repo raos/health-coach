@@ -432,14 +432,24 @@ def generate_meal_plan(
 - Carbs: {carbs_g}g
 - Calorie breakdown: P={protein_g*4}kcal, F={fat_g*9}kcal, C={carbs_g*4}kcal"""
 
-    breakfast_context = breakfast_prefs or _DEFAULT_BREAKFAST_PREFS
+    breakfast_context = (
+        breakfast_prefs
+        or (profile.breakfast_pref if profile and profile.breakfast_pref else None)
+        or _DEFAULT_BREAKFAST_PREFS
+    )
+    effective_lunch = (
+        lunch_prefs
+        or (profile.lunch_pref if profile and profile.lunch_pref else None)
+    )
+    effective_dinner = (
+        dinner_prefs
+        or (profile.dinner_pref if profile and profile.dinner_pref else None)
+        or _DEFAULT_DINNER_PREFS
+    )
     user_prefs_section = ""
-    if lunch_prefs:
-        user_prefs_section += f"## Lunch Preferences\n{lunch_prefs}\n\n"
-    if dinner_prefs:
-        user_prefs_section += f"## Dinner Preferences\n{dinner_prefs}"
-    else:
-        user_prefs_section += f"## Dinner Preferences\n{_DEFAULT_DINNER_PREFS}"
+    if effective_lunch:
+        user_prefs_section += f"## Lunch Preferences\n{effective_lunch}\n\n"
+    user_prefs_section += f"## Dinner Preferences\n{effective_dinner}"
 
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
     measurement_note = _measurement_instruction(measurement_system)

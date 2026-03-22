@@ -8,7 +8,7 @@ import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emai
 import type { NutritionLogEntry } from "../api/nutrition";
 import { getSupplements, createSupplement, updateSupplement, deleteSupplement, getSupplementLog, logSupplementTaken, unlogSupplement } from "../api/supplements";
 import type { Supplement, SupplementLog } from "../api/supplements";
-import { getProfile } from "../api/profile";
+import { getProfile, updateProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
 type Tab = "meal-plan" | "food-log" | "supplements" | "shopping-list" | "chat";
@@ -266,22 +266,18 @@ export default function Nutrition() {
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [calorieTarget, setCalorieTarget] = useState(2200);
   const [showPrefs, setShowPrefs] = useState(false);
-  const [breakfastPrefs, setBreakfastPrefs] = useState(
-    "Rotate among these options — keep them quick, no cooking:\n" +
-    "1. Overnight oats: rolled oats + whey protein + unsweetened almond milk + hemp/pumpkin seeds + berries\n" +
-    "2. Protein smoothie: whey protein + creatine + frozen fruit + non-fat Greek yogurt + hemp/pumpkin seeds + unsweetened almond milk\n" +
-    "3. Eggs + toast + cottage cheese: 2-3 pasture-raised eggs + Dave's Killer Bread + cottage cheese\n" +
-    "No traditional Indian breakfast (no idli, dosa, upma)."
-  );
-  const [lunchPrefs, setLunchPrefs] = useState("Lunch is usually previous night's dinner");
-  const [dinnerPrefs, setDinnerPrefs] = useState(
-    "South Indian home cooking: sambar with rice, kootu, poriyal, rasam, dal tadka, chana masala, rajma, paneer dishes, egg curries. " +
-    "Occasional non-Indian (pasta, grain bowls) 1-2x/week is fine."
-  );
+  const [breakfastPrefs, setBreakfastPrefs] = useState("");
+  const [lunchPrefs, setLunchPrefs] = useState("");
+  const [dinnerPrefs, setDinnerPrefs] = useState("");
 
   useEffect(() => {
     getProfile()
-      .then((p) => { if (p.calorie_target) setCalorieTarget(p.calorie_target); })
+      .then((p) => {
+        if (p.calorie_target) setCalorieTarget(p.calorie_target);
+        if (p.breakfast_pref) setBreakfastPrefs(p.breakfast_pref);
+        if (p.lunch_pref) setLunchPrefs(p.lunch_pref);
+        if (p.dinner_pref) setDinnerPrefs(p.dinner_pref);
+      })
       .catch(() => {});
 
     getLatestMealPlan()
@@ -426,6 +422,12 @@ export default function Nutrition() {
     setGenerating(true);
     setError("");
     try {
+      // Persist current prefs to profile so they survive page reloads
+      updateProfile({
+        breakfast_pref: breakfastPrefs || null,
+        lunch_pref: lunchPrefs || null,
+        dinner_pref: dinnerPrefs || null,
+      }).catch(() => {});
       const p = await generateMealPlan({ calorieTarget, breakfastPrefs, lunchPrefs, dinnerPrefs });
       setPlan(p);
       try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}

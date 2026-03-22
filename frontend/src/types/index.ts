@@ -97,6 +97,9 @@ export interface UserProfile {
   calorie_target: number | null;
   measurement_system: "imperial" | "metric";
   training_device: "tonal" | "gym" | "bodyweight";
+  breakfast_pref?: string | null;
+  lunch_pref?: string | null;
+  dinner_pref?: string | null;
 }
 
 export interface TrainingPlan {
