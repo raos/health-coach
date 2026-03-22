@@ -1,5 +1,5 @@
 import client from "./client";
-import type { DashboardSummary, GoalProgress, GoalProjection, ActivityFeedItem, WeightLog } from "../types";
+import type { DashboardSummary, GoalProgress, ActivityFeedItem, WeightLog } from "../types";
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const res = await client.get("/api/dashboard/summary");
@@ -18,11 +18,6 @@ export async function getActivityFeed(limit = 10): Promise<ActivityFeedItem[]> {
 
 export async function getGoalProgress(): Promise<GoalProgress> {
   const res = await client.get("/api/dashboard/goal-progress");
-  return res.data;
-}
-
-export async function getGoalProjection(): Promise<GoalProjection> {
-  const res = await client.get("/api/dashboard/goal-projection");
   return res.data;
 }
 

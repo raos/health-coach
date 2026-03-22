@@ -4,25 +4,23 @@ import PageWrapper from "../components/layout/PageWrapper";
 import MetricCard from "../components/dashboard/MetricCard";
 import WeightChart from "../components/dashboard/WeightChart";
 import GoalProgress from "../components/dashboard/GoalProgress";
-import GoalTrajectoryCard from "../components/dashboard/GoalTrajectoryCard";
 import ActivityFeed from "../components/dashboard/ActivityFeed";
 import QuickWeightLog from "../components/dashboard/QuickWeightLog";
 import WorkoutHeatmap from "../components/dashboard/WorkoutHeatmap";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getGoalProjection, getWorkoutHeatmap } from "../api/dashboard";
+import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap } from "../api/dashboard";
 import type { WorkoutDay } from "../api/dashboard";
 import { syncActivities } from "../api/coach";
 import { getProfile } from "../api/profile";
 import { convertWeight, weightUnit } from "../hooks/useMeasurement";
-import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, GoalProjection, UserProfile } from "../types";
+import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile } from "../types";
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [weightTrend, setWeightTrend] = useState<WeightLog[]>([]);
   const [activities, setActivities] = useState<ActivityFeedItem[]>([]);
   const [goalProgress, setGoalProgress] = useState<GoalProgressType | null>(null);
-  const [goalProjection, setGoalProjection] = useState<GoalProjection | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -44,8 +42,6 @@ export default function Dashboard() {
       setActivities(af);
       setGoalProgress(gp);
       setHeatmapData(hm);
-      // Goal projection is independent — failure shouldn't block the dashboard
-      getGoalProjection().then(setGoalProjection).catch(() => {});
     } catch {
       setError("Failed to load dashboard data. Make sure the backend is running.");
     } finally {
@@ -150,7 +146,7 @@ export default function Dashboard() {
               <WorkoutHeatmap data={heatmapData} weeks={12} />
               <ActivityFeed activities={activities} />
             </div>
-            {/* Right column: Goal Progress → Goal Trajectory → Quick Weight Log */}
+            {/* Right column: Goal Progress → Quick Weight Log */}
             <div className="flex flex-col gap-4">
               <GoalProgress
                 bfCurrent={goalProgress?.bf_current ?? currentBF}
@@ -158,12 +154,7 @@ export default function Dashboard() {
                 vo2Current={goalProgress?.vo2_current ?? currentVO2}
                 vo2Goal={goalProgress?.vo2_goal ?? 50}
               />
-              {goalProjection && <GoalTrajectoryCard data={goalProjection} />}
-              <QuickWeightLog
-                onLogged={fetchAll}
-                calibrationFactor={goalProjection?.body_fat?.calibration_factor}
-                calibrationDate={goalProjection?.body_fat?.calibration_date}
-              />
+              <QuickWeightLog onLogged={fetchAll} />
             </div>
           </div>
         </div>

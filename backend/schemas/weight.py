@@ -6,7 +6,6 @@ from pydantic import BaseModel
 class WeightLogCreate(BaseModel):
     date: date
     weight_lbs: float
-    body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
     source: str = "manual"
 
@@ -15,7 +14,6 @@ class WeightLogResponse(BaseModel):
     id: int
     date: date
     weight_lbs: float
-    body_fat_pct: Optional[float] = None
     notes: Optional[str]
     source: str
     created_at: datetime

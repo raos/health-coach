@@ -51,12 +51,6 @@ def _migrate_user_profile_columns():
                 conn.execute(text(f"ALTER TABLE user_profile ADD COLUMN {col} {definition}"))
         conn.commit()
 
-    # WeightLog.body_fat_pct
-    with engine.connect() as conn:
-        wl_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(weight_logs)")).fetchall()]
-        if "body_fat_pct" not in wl_cols:
-            conn.execute(text("ALTER TABLE weight_logs ADD COLUMN body_fat_pct REAL"))
-            conn.commit()
 
 
 def _seed_initial_data():

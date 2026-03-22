@@ -16,7 +16,6 @@ def log_weight(payload: WeightLogCreate, db: Session = Depends(get_db)):
     existing = db.query(WeightLog).filter(WeightLog.date == payload.date).first()
     if existing:
         existing.weight_lbs = payload.weight_lbs
-        existing.body_fat_pct = payload.body_fat_pct
         existing.notes = payload.notes
         existing.source = payload.source
         db.commit()

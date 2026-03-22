@@ -2,7 +2,6 @@ export interface WeightLog {
   id: number;
   date: string;
   weight_lbs: number;
-  body_fat_pct?: number;
   notes?: string;
   source: string;
   created_at: string;
@@ -84,44 +83,6 @@ export interface GoalProgress {
   vo2_current: number;
   vo2_goal: number;
   vo2_pct_complete: number;
-}
-
-export interface GoalProjectionMetric {
-  current_lbs?: number;
-  current_pct?: number;
-  current?: number;
-  goal_lbs?: number;
-  goal_pct?: number;
-  goal?: number;
-  lean_mass_lbs?: number;
-  dexa_date?: string;
-  slope_lbs_per_day?: number | null;
-  slope_per_day?: number | null;
-  projected_goal_date: string | null;
-  weeks_diff: number | null;
-  status: "ahead" | "on_track" | "behind" | "insufficient_data" | "no_trend";
-  data_points?: number;
-  calibration_factor?: number | null;
-  calibration_date?: string | null;
-}
-
-export interface GoalProjectionChartPoint {
-  date: string;
-  weight?: number;
-  bf_pct?: number;
-}
-
-export interface GoalProjection {
-  goal_date: string;
-  days_remaining: number;
-  weight: GoalProjectionMetric;
-  body_fat: GoalProjectionMetric;
-  vo2max: GoalProjectionMetric;
-  chart: {
-    actual: GoalProjectionChartPoint[];
-    required: GoalProjectionChartPoint[];
-    projected: GoalProjectionChartPoint[];
-  };
 }
 
 export interface UserProfile {
