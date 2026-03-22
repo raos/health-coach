@@ -104,9 +104,9 @@ export default function Login() {
         {/* Stats teaser */}
         <div className="mt-6 grid grid-cols-3 gap-3 text-center">
           {[
-            { label: "Training", value: "Tonal" },
-            { label: "Nutrition", value: "South Indian" },
-            { label: "Insights", value: "Attia · Huberman" },
+            { label: "Training", value: "Personal Coach" },
+            { label: "Nutrition", value: "Personal Nutritionist" },
+            { label: "Insights", value: "Health Advisor" },
           ].map(({ label, value }) => (
             <div key={label} className="bg-white/10 rounded-xl px-3 py-3 backdrop-blur-sm">
               <p className="text-xs text-gray-400">{label}</p>
