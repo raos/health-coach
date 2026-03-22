@@ -8,6 +8,7 @@ import Coach from "./pages/Coach";
 import Nutrition from "./pages/Nutrition";
 import HealthAdvisor from "./pages/HealthAdvisor";
 import Settings from "./pages/Settings";
+import WeeklyCheckin from "./pages/WeeklyCheckin";
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
                     <Route path="/coach" element={<Coach />} />
                     <Route path="/nutrition" element={<Nutrition />} />
                     <Route path="/health" element={<HealthAdvisor />} />
+                    <Route path="/checkin" element={<WeeklyCheckin />} />
                     <Route path="/settings" element={<Settings />} />
                   </Routes>
                 </main>

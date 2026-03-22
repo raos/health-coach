@@ -31,7 +31,7 @@ from database.models import (
     WeightLog, HevyWorkout, HevyExerciseSet,
     TrainingPlan, GarminDailyCache, DexaScan,
     Vo2MaxLog, NutritionLog, HealthInsight, UserProfile,
-    MealPlan, Supplement, SupplementLog,
+    MealPlan, Supplement, SupplementLog, WeeklyCheckin,
 )
 
 server = Server("health-coach")
@@ -278,6 +278,43 @@ async def list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="submit_weekly_checkin",
+            description=(
+                "Submit a weekly self-assessment (1–5 ratings + optional journal notes). "
+                "Saves to the current week's check-in and feeds into Coach and Health Advisor context. "
+                "All rating fields are optional — only provided fields are updated."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "training_adherence": {
+                        "type": "integer",
+                        "description": "1–5. How many planned workouts were completed? 1=missed most, 5=hit all.",
+                    },
+                    "energy_level": {
+                        "type": "integer",
+                        "description": "1–5. Overall energy levels this week. 1=very low, 5=very high.",
+                    },
+                    "sleep_quality": {
+                        "type": "integer",
+                        "description": "1–5. Subjective sleep quality. 1=poor, 5=excellent.",
+                    },
+                    "diet_adherence": {
+                        "type": "integer",
+                        "description": "1–5. How well did you stick to your nutrition plan? 1=off track, 5=fully on target.",
+                    },
+                    "stress_level": {
+                        "type": "integer",
+                        "description": "1–5. Subjective stress. 1=very low, 5=very high.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Free-text journal entry — anything else on your mind this week.",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -299,6 +336,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "get_meal_plan_for_day": _get_meal_plan_for_day,
         "log_supplement": _log_supplement,
         "get_supplement_log": _get_supplement_log,
+        "submit_weekly_checkin": _submit_weekly_checkin,
     }
     handler = handlers.get(name)
     if not handler:
@@ -923,6 +961,61 @@ async def _get_supplement_log(args: dict[str, Any]) -> list[types.TextContent]:
                 dosage = f" — {s.dosage}" if s.dosage else ""
                 lines.append(f"  • {s.name}{dosage}")
 
+        return [types.TextContent(type="text", text="\n".join(lines))]
+    finally:
+        db.close()
+
+
+async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent]:
+    def _monday(d: date) -> date:
+        return d - timedelta(days=d.weekday())
+
+    week_start = _monday(date.today())
+    db = SessionLocal()
+    try:
+        # Validate ratings
+        for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level"):
+            val = args.get(field)
+            if val is not None and not (1 <= int(val) <= 5):
+                return [types.TextContent(type="text", text=f"Error: {field} must be between 1 and 5.")]
+
+        existing = db.query(WeeklyCheckin).filter(WeeklyCheckin.week_start == week_start).first()
+        if existing:
+            for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level", "notes"):
+                val = args.get(field)
+                if val is not None:
+                    setattr(existing, field, val)
+            db.commit()
+            db.refresh(existing)
+            row = existing
+        else:
+            row = WeeklyCheckin(
+                week_start=week_start,
+                training_adherence=args.get("training_adherence"),
+                energy_level=args.get("energy_level"),
+                sleep_quality=args.get("sleep_quality"),
+                diet_adherence=args.get("diet_adherence"),
+                stress_level=args.get("stress_level"),
+                notes=args.get("notes"),
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+
+        labels = {1: "★☆☆☆☆", 2: "★★☆☆☆", 3: "★★★☆☆", 4: "★★★★☆", 5: "★★★★★"}
+        lines = [f"✓ Weekly check-in saved for week of {week_start}", ""]
+        for field, title in [
+            ("training_adherence", "Training adherence"),
+            ("energy_level", "Energy levels"),
+            ("sleep_quality", "Sleep quality"),
+            ("diet_adherence", "Diet adherence"),
+            ("stress_level", "Stress level"),
+        ]:
+            val = getattr(row, field)
+            lines.append(f"  {title}: {labels.get(val, '—') if val else '—'} ({val}/5)" if val else f"  {title}: not rated")
+        if row.notes:
+            lines.append(f"\n  Notes: {row.notes}")
+        lines.append("\nThis will be included in your next Coach and Health Advisor session.")
         return [types.TextContent(type="text", text="\n".join(lines))]
     finally:
         db.close()

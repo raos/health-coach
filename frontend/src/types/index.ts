@@ -126,3 +126,16 @@ export interface HealthInsight {
   content_md: string;
   is_read: boolean;
 }
+
+export interface WeeklyCheckin {
+  id: number;
+  week_start: string;
+  training_adherence: number | null;
+  energy_level: number | null;
+  sleep_quality: number | null;
+  diet_adherence: number | null;
+  stress_level: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}

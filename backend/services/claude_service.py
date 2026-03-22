@@ -11,11 +11,37 @@ from config import settings
 from database.models import (
     WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
     HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog,
-    Supplement, SupplementLog, GarminDailyCache
+    Supplement, SupplementLog, GarminDailyCache, WeeklyCheckin
 )
 from prompts.coach_system import COACH_SYSTEM_PROMPT, COACH_CHAT_SYSTEM
 from prompts.nutrition_system import NUTRITION_SYSTEM_PROMPT, NUTRITIONIST_CHAT_SYSTEM
 from prompts.health_advisor_system import HEALTH_ADVISOR_SYSTEM_PROMPT
+
+
+_RATING_LABELS = {
+    "training_adherence": {1: "missed most sessions", 2: "missed several", 3: "hit about half", 4: "hit most", 5: "hit all planned sessions"},
+    "energy_level":       {1: "very low", 2: "low", 3: "moderate", 4: "good", 5: "very high"},
+    "sleep_quality":      {1: "poor", 2: "below average", 3: "average", 4: "good", 5: "excellent"},
+    "diet_adherence":     {1: "mostly off track", 2: "struggled", 3: "roughly on track", 4: "mostly on target", 5: "fully on target"},
+    "stress_level":       {1: "very low", 2: "low", 3: "moderate", 4: "high", 5: "very high"},
+}
+
+
+def _format_checkin(c) -> str:
+    def label(field: str, val) -> str:
+        if val is None:
+            return "not rated"
+        return f"{val}/5 — {_RATING_LABELS[field].get(val, '')}"
+
+    lines = [f"Week of {c.week_start}:"]
+    lines.append(f"  Training adherence: {label('training_adherence', c.training_adherence)}")
+    lines.append(f"  Energy levels:      {label('energy_level', c.energy_level)}")
+    lines.append(f"  Sleep quality:      {label('sleep_quality', c.sleep_quality)}")
+    lines.append(f"  Diet adherence:     {label('diet_adherence', c.diet_adherence)}")
+    lines.append(f"  Stress level:       {label('stress_level', c.stress_level)}")
+    if c.notes:
+        lines.append(f"  Journal notes:      {c.notes}")
+    return "\n".join(lines)
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -729,6 +755,15 @@ def generate_health_insights(db: Session) -> str:
     except Exception:
         pass
 
+    # ── Weekly check-in ────────────────────────────────────────────────────────
+    checkin_str = "Weekly check-in: None submitted yet."
+    try:
+        latest_checkin = db.query(WeeklyCheckin).order_by(desc(WeeklyCheckin.week_start)).first()
+        if latest_checkin:
+            checkin_str = _format_checkin(latest_checkin)
+    except Exception:
+        pass
+
     health_data_str = f"""- Weight trend (30 days): {weight_trend_str}
 - DEXA scan date: {str(latest_dexa.scan_date) if latest_dexa else '2026-03-13'}
 - ALMI: {latest_dexa.almi if latest_dexa else 8.6} kg/m² (target: 9.5)
@@ -741,7 +776,9 @@ def generate_health_insights(db: Session) -> str:
 
 {supplement_str}
 
-{workout_str}"""
+{workout_str}
+
+{checkin_str}"""
 
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
     measurement_note = _measurement_instruction(measurement_system)
@@ -1005,10 +1042,19 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
                     + active_plan.plan_markdown
                 )
 
+    checkin_section = ""
+    try:
+        latest_checkin = db.query(WeeklyCheckin).order_by(desc(WeeklyCheckin.week_start)).first()
+        if latest_checkin:
+            checkin_section = f"\n\n## Latest Weekly Check-In\n{_format_checkin(latest_checkin)}"
+    except Exception:
+        pass
+
     system = (
         COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2)
         + f"\n\n## Today's Date\nToday is {today_str}. Use this when filtering activities by date."
         + plan_section
+        + checkin_section
         + f"\n\n{hevy_note}"
         + f"\n\n## Equipment Constraint\n{device_note}"
         + f"\n\n## Units\n{measurement_note}"

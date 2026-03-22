@@ -230,3 +230,19 @@ class SupplementLog(Base):
     taken_at      = Column(DateTime, default=datetime.utcnow)
 
     supplement = relationship("Supplement", back_populates="logs")
+
+
+class WeeklyCheckin(Base):
+    """Weekly self-assessment bridging objective data with subjective state."""
+    __tablename__ = "weekly_checkins"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    week_start          = Column(Date, nullable=False, unique=True, index=True)  # Monday of the week
+    training_adherence  = Column(Integer, nullable=True)  # 1–5: 1=missed most, 5=hit all
+    energy_level        = Column(Integer, nullable=True)  # 1–5: 1=very low, 5=very high
+    sleep_quality       = Column(Integer, nullable=True)  # 1–5: 1=poor, 5=excellent
+    diet_adherence      = Column(Integer, nullable=True)  # 1–5: 1=off track, 5=on target
+    stress_level        = Column(Integer, nullable=True)  # 1–5: 1=very low, 5=very high
+    notes               = Column(Text, nullable=True)     # free-text journal entry
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

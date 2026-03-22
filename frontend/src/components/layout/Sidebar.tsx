@@ -9,6 +9,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  ClipboardCheck,
 } from "lucide-react";
 import { getStoredUser } from "../auth/ProtectedRoute";
 import { useDarkMode } from "../../hooks/useDarkMode";
@@ -18,6 +19,7 @@ const navItems = [
   { to: "/coach", icon: Dumbbell, label: "Coach" },
   { to: "/nutrition", icon: Salad, label: "Nutrition" },
   { to: "/health", icon: HeartPulse, label: "Health" },
+  { to: "/checkin", icon: ClipboardCheck, label: "Check-In" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
