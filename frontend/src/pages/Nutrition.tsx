@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Settings2, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send, Pill, Plus, Trash2, Pencil, Check, X } from "lucide-react";
+import { Salad, RefreshCw, ChevronDown, ChevronUp, ShoppingCart, RotateCcw, Mail, ClipboardList, ChevronLeft, ChevronRight, MessageSquare, Send, Pill, Plus, Trash2, Pencil, Check, X } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
@@ -8,7 +8,7 @@ import { getLatestMealPlan, generateMealPlan, regenerateDay, emailMealPlan, emai
 import type { NutritionLogEntry } from "../api/nutrition";
 import { getSupplements, createSupplement, updateSupplement, deleteSupplement, getSupplementLog, logSupplementTaken, unlogSupplement } from "../api/supplements";
 import type { Supplement, SupplementLog } from "../api/supplements";
-import { getProfile, updateProfile } from "../api/profile";
+import { getProfile } from "../api/profile";
 import type { MealPlan } from "../types";
 
 type Tab = "meal-plan" | "food-log" | "supplements" | "shopping-list" | "chat";
@@ -265,18 +265,11 @@ export default function Nutrition() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [calorieTarget, setCalorieTarget] = useState(2200);
-  const [showPrefs, setShowPrefs] = useState(false);
-  const [breakfastPrefs, setBreakfastPrefs] = useState("");
-  const [lunchPrefs, setLunchPrefs] = useState("");
-  const [dinnerPrefs, setDinnerPrefs] = useState("");
 
   useEffect(() => {
     getProfile()
       .then((p) => {
         if (p.calorie_target) setCalorieTarget(p.calorie_target);
-        if (p.breakfast_pref) setBreakfastPrefs(p.breakfast_pref);
-        if (p.lunch_pref) setLunchPrefs(p.lunch_pref);
-        if (p.dinner_pref) setDinnerPrefs(p.dinner_pref);
       })
       .catch(() => {});
 
@@ -422,13 +415,7 @@ export default function Nutrition() {
     setGenerating(true);
     setError("");
     try {
-      // Persist current prefs to profile so they survive page reloads
-      updateProfile({
-        breakfast_pref: breakfastPrefs || null,
-        lunch_pref: lunchPrefs || null,
-        dinner_pref: dinnerPrefs || null,
-      }).catch(() => {});
-      const p = await generateMealPlan({ calorieTarget, breakfastPrefs, lunchPrefs, dinnerPrefs });
+      const p = await generateMealPlan({ calorieTarget });
       setPlan(p);
       try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
     } catch (e: any) {
@@ -541,13 +528,6 @@ export default function Nutrition() {
               <span className="text-sm text-gray-500">kcal/day</span>
             </div>
             <button
-              onClick={() => setShowPrefs(!showPrefs)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors ${showPrefs ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
-            >
-              <Settings2 className="w-4 h-4" />
-              Preferences
-            </button>
-            <button
               onClick={handleGenerate}
               disabled={generating}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
@@ -564,31 +544,6 @@ export default function Nutrition() {
               {emailing ? "Sending..." : emailStatus || "Email Plan"}
             </button>
           </div>
-
-          {/* Preferences panel */}
-          {showPrefs && (
-            <div className="mb-4 bg-white dark:bg-gray-800 border border-green-200 dark:border-green-700 rounded-xl p-4 space-y-4">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Meal Preferences</h3>
-                <p className="text-xs text-gray-400 dark:text-gray-500">These are sent to Claude when you generate a plan</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Breakfast — what you like to eat</label>
-                <textarea value={breakfastPrefs} onChange={(e) => setBreakfastPrefs(e.target.value)} rows={4}
-                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Lunch — what you typically eat</label>
-                <textarea value={lunchPrefs} onChange={(e) => setLunchPrefs(e.target.value)} rows={2}
-                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dinner (also used for next day's lunch — cook once, eat twice)</label>
-                <textarea value={dinnerPrefs} onChange={(e) => setDinnerPrefs(e.target.value)} rows={3}
-                  className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400" />
-              </div>
-            </div>
-          )}
 
           {!loading && !plan && (
             <div className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-12 text-center">

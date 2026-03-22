@@ -254,16 +254,17 @@ def _call_claude_json(client: anthropic.Anthropic, system: str, prompt: str) -> 
 
 
 _DEFAULT_BREAKFAST_PREFS = (
-    "Rotate among these 3 options each week — keep them simple, no cooking required:\n"
-    "1. Overnight oats: rolled oats + 1 scoop whey protein + unsweetened almond milk + hemp/pumpkin seeds + fruit (berries or banana). Prep night before.\n"
-    "2. Protein smoothie: whey protein + creatine (5g) + frozen fruit + non-fat Greek yogurt + hemp/pumpkin seeds + unsweetened almond milk. Blend and go.\n"
-    "3. Eggs + toast + cottage cheese: 2-3 pasture-raised eggs (any style) + 1-2 slices Dave's Killer Bread + 1/2 cup cottage cheese. 10 min max.\n"
-    "NO traditional Indian breakfast (no idli, dosa, upma, etc.). Keep it quick and high protein."
+    "High-protein, quick to prepare — no cooking required. Rotate among:\n"
+    "1. Overnight oats: rolled oats + protein powder + milk or non-dairy alternative + seeds + fruit.\n"
+    "2. Protein smoothie: protein powder + frozen fruit + Greek yogurt + seeds + milk. Blend and go.\n"
+    "3. Eggs + whole-grain toast + cottage cheese: 2-3 eggs (any style) + 1-2 slices whole-grain bread + cottage cheese.\n"
+    "Keep it under 15 minutes, prioritise 30-40g protein, moderate carbs."
 )
 
 _DEFAULT_DINNER_PREFS = (
-    "South Indian home cooking preferred: sambar with rice, kootu, poriyal, rasam, dal tadka, "
-    "chana masala, rajma, paneer dishes, egg curries. Occasional non-Indian (pasta, grain bowls) is fine 1-2x/week."
+    "Balanced whole-food meals focused on fat loss and muscle retention: lean protein (legumes, tofu, eggs, fish or chicken) "
+    "with plenty of vegetables and a moderate portion of complex carbs (rice, quinoa, sweet potato, lentils). "
+    "Avoid heavy cream sauces and fried foods. One-pan or sheet-pan meals preferred for ease."
 )
 
 
