@@ -164,9 +164,10 @@ export default function GoalTrajectoryCard({ data }: Props) {
               }}
             />
             <Legend
-              formatter={(value) =>
-                ({ actual: "Actual", required: "Required rate", projected: "Projected rate" }[value] ?? value)
-              }
+              formatter={(value) => {
+                const labels: Record<string, string> = { actual: "Actual", required: "Required rate", projected: "Projected rate" };
+                return labels[value as string] ?? value;
+              }}
               wrapperStyle={{ fontSize: 11 }}
             />
             <ReferenceLine
