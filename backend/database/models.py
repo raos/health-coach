@@ -15,6 +15,7 @@ class WeightLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(Date, nullable=False, unique=True)
     weight_lbs = Column(Float, nullable=False)
+    body_fat_pct = Column(Float, nullable=True)  # raw scale reading (e.g. Fitindex BIA)
     notes = Column(Text)
     source = Column(String(20), default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)

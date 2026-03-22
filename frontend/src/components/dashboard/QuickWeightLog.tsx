@@ -5,10 +5,13 @@ import { logWeight } from "../../api/weight";
 
 interface Props {
   onLogged?: () => void;
+  calibrationFactor?: number | null;
+  calibrationDate?: string | null;
 }
 
-export default function QuickWeightLog({ onLogged }: Props) {
+export default function QuickWeightLog({ onLogged, calibrationFactor, calibrationDate }: Props) {
   const [weight, setWeight] = useState("");
+  const [bfPct, setBfPct] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
@@ -22,9 +25,11 @@ export default function QuickWeightLog({ onLogged }: Props) {
     setLoading(true);
     setError("");
     try {
-      await logWeight(format(new Date(), "yyyy-MM-dd"), Number(weight));
+      const bf = bfPct && !isNaN(Number(bfPct)) ? Number(bfPct) : undefined;
+      await logWeight(format(new Date(), "yyyy-MM-dd"), Number(weight), undefined, bf);
       setSuccess(true);
       setWeight("");
+      setBfPct("");
       setTimeout(() => setSuccess(false), 2000);
       onLogged?.();
     } catch {
@@ -33,6 +38,10 @@ export default function QuickWeightLog({ onLogged }: Props) {
       setLoading(false);
     }
   }
+
+  const calibratedBf = bfPct && calibrationFactor && !isNaN(Number(bfPct))
+    ? (Number(bfPct) * calibrationFactor).toFixed(1)
+    : null;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
@@ -52,6 +61,25 @@ export default function QuickWeightLog({ onLogged }: Props) {
           />
           <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">lbs</span>
         </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            step="0.1"
+            min="5"
+            max="60"
+            placeholder="Body fat % (optional, from scale)"
+            value={bfPct}
+            onChange={(e) => setBfPct(e.target.value)}
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
+          />
+          <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">%</span>
+        </div>
+        {calibratedBf && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            DEXA-calibrated: ~{calibratedBf}%
+            {calibrationDate && ` (×${calibrationFactor?.toFixed(2)} from ${calibrationDate} scan)`}
+          </p>
+        )}
         {error && <p className="text-xs text-red-500">{error}</p>}
         <button
           type="submit"

@@ -1,8 +1,8 @@
 import client from "./client";
 import type { WeightLog } from "../types";
 
-export async function logWeight(date: string, weight_lbs: number, notes?: string): Promise<WeightLog> {
-  const res = await client.post("/api/weight/log", { date, weight_lbs, notes });
+export async function logWeight(date: string, weight_lbs: number, notes?: string, body_fat_pct?: number): Promise<WeightLog> {
+  const res = await client.post("/api/weight/log", { date, weight_lbs, notes, body_fat_pct });
   return res.data;
 }
 
