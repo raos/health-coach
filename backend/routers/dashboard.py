@@ -190,6 +190,16 @@ def get_workout_heatmap(weeks: int = 12, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/vo2-trend")
+def get_vo2_trend(db: Session = Depends(get_db)):
+    """All Vo2MaxLog entries sorted oldest-first for trend chart."""
+    rows = db.query(Vo2MaxLog).order_by(Vo2MaxLog.date).all()
+    return [
+        {"date": str(r.date), "vo2max": r.vo2max, "source": r.source}
+        for r in rows
+    ]
+
+
 @router.get("/goal-progress")
 def get_goal_progress(db: Session = Depends(get_db)):
     profile = db.query(UserProfile).first()

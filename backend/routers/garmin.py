@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database.engine import get_db
-from database.models import GarminDailyCache
+from database.models import GarminDailyCache, Vo2MaxLog
 from services.garmin_service import garmin_service
 
 router = APIRouter(prefix="/api/garmin", tags=["garmin"])
@@ -145,12 +145,45 @@ def get_steps(for_date: Optional[date] = None):
 
 
 @router.get("/vo2max")
-def get_vo2max():
+def get_vo2max(db: Session = Depends(get_db)):
     _require_auth()
     try:
-        return {"vo2max": garmin_service.get_vo2max()}
+        value = garmin_service.get_vo2max()
+        if value is not None:
+            today = date.today()
+            existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.date == today).first()
+            if existing:
+                existing.vo2max = value
+            else:
+                db.add(Vo2MaxLog(date=today, vo2max=value, source="garmin"))
+            db.commit()
+        return {"vo2max": value}
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/vo2max/sync")
+def sync_vo2max_history(days: int = 90, db: Session = Depends(get_db)):
+    """Try to backfill VO2 max history from Garmin for the past N days."""
+    _require_auth()
+    saved = 0
+    for i in range(days, -1, -1):
+        d = date.today() - timedelta(days=i)
+        try:
+            data = garmin_service._get_client().get_max_metrics(d.isoformat())
+            if data and isinstance(data, list) and len(data) > 0:
+                value = data[0].get("generic", {}).get("vo2MaxPreciseValue")
+                if value is not None:
+                    existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.date == d).first()
+                    if existing:
+                        existing.vo2max = value
+                    else:
+                        db.add(Vo2MaxLog(date=d, vo2max=value, source="garmin"))
+                    saved += 1
+        except Exception:
+            continue
+    db.commit()
+    return {"synced": saved}
 
 
 @router.get("/sleep/range")

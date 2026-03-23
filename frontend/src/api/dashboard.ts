@@ -1,5 +1,5 @@
 import client from "./client";
-import type { DashboardSummary, GoalProgress, ActivityFeedItem, WeightLog } from "../types";
+import type { DashboardSummary, GoalProgress, ActivityFeedItem, WeightLog, Vo2MaxLog } from "../types";
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const res = await client.get("/api/dashboard/summary");
@@ -23,6 +23,11 @@ export async function getGoalProgress(): Promise<GoalProgress> {
 
 export async function getWorkoutHeatmap(weeks = 12): Promise<WorkoutDay[]> {
   const res = await client.get(`/api/dashboard/workout-heatmap?weeks=${weeks}`);
+  return res.data;
+}
+
+export async function getVo2Trend(): Promise<Vo2MaxLog[]> {
+  const res = await client.get("/api/dashboard/vo2-trend");
   return res.data;
 }
 
