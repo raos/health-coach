@@ -86,7 +86,6 @@ export default function Vo2GaugeCard({ vo2max, goal, age, gender = "male" }: Pro
   const range = t.superior - t.fair;
   const displayMin = Math.floor(t.fair - range * 0.55);
   const displayMax = Math.ceil(t.superior + range * 0.42);
-  const displayRange = displayMax - displayMin;
 
   // Boundary angles for each category threshold
   const ba = {
