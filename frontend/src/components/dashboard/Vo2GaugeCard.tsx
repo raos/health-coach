@@ -245,59 +245,7 @@ export default function Vo2GaugeCard({ vo2max, goal, age, gender = "male" }: Pro
         </svg>
       </div>
 
-      {/* Legend */}
-      <div className="flex justify-center gap-3 flex-wrap mt-0">
-        {CATEGORIES.map(cat => {
-          const isCurrent = cat.key === categoryKey;
-          const isGoalZone = cat.key === "Excellent" || cat.key === "Superior";
-          return (
-            <div
-              key={cat.key}
-              className={`flex items-center gap-1 text-xs ${isCurrent ? "font-bold" : "text-gray-400 dark:text-gray-500"}`}
-            >
-              <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: cat.color, opacity: isCurrent ? 1 : 0.5 }}
-              />
-              <span style={isCurrent ? { color: cat.color } : undefined}>
-                {cat.key}
-                {isGoalZone && !isCurrent && (
-                  <span className="text-gray-300 dark:text-gray-600"> ★</span>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Threshold bands summary */}
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-        {[
-          { label: "Poor",      range: `< ${t.fair}`,                                color: "#ef4444" },
-          { label: "Fair",      range: `${t.fair} – ${t.good - 0.1}`,               color: "#f97316" },
-          { label: "Good",      range: `${t.good} – ${t.excellent - 0.1}`,          color: "#84cc16" },
-          { label: "Excellent", range: `${t.excellent} – ${t.superior - 0.1}`,      color: "#22d3ee" },
-          { label: "Superior",  range: `≥ ${t.superior}`,                           color: "#8b5cf6" },
-        ].map(row => (
-          <div key={row.label} className={`flex items-center gap-1.5 ${row.label === categoryKey ? "opacity-100" : "opacity-50"}`}>
-            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: row.color }} />
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              <span className="font-medium" style={row.label === categoryKey ? { color: row.color } : undefined}>
-                {row.label}
-              </span>{" "}
-              {row.range}
-            </span>
-          </div>
-        ))}
-        <div className="flex items-center gap-1.5 opacity-50">
-          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            <span className="font-medium text-green-500">Goal</span> ≥ {goal}
-          </span>
-        </div>
-      </div>
-
-      <p className="text-xs text-gray-400 text-center mt-3">
+      <p className="text-xs text-gray-400 text-center mt-2">
         Garmin/Cooper Institute · {gender}s {t.ages}
       </p>
     </div>
