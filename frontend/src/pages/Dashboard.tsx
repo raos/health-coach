@@ -7,15 +7,15 @@ import GoalProgress from "../components/dashboard/GoalProgress";
 import ActivityFeed from "../components/dashboard/ActivityFeed";
 import QuickWeightLog from "../components/dashboard/QuickWeightLog";
 import WorkoutHeatmap from "../components/dashboard/WorkoutHeatmap";
-import Vo2TrendCard from "../components/dashboard/Vo2TrendCard";
+import Vo2GaugeCard from "../components/dashboard/Vo2GaugeCard";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap, getVo2Trend } from "../api/dashboard";
+import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap } from "../api/dashboard";
 import type { WorkoutDay } from "../api/dashboard";
 import { syncActivities } from "../api/coach";
 import { getProfile } from "../api/profile";
 import { convertWeight, weightUnit } from "../hooks/useMeasurement";
-import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile, Vo2MaxLog } from "../types";
+import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile } from "../types";
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -27,25 +27,22 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [heatmapData, setHeatmapData] = useState<WorkoutDay[]>([]);
-  const [vo2Trend, setVo2Trend] = useState<Vo2MaxLog[]>([]);
 
   const fetchAll = useCallback(async () => {
     try {
       setError("");
-      const [s, wt, af, gp, hm, v2] = await Promise.all([
+      const [s, wt, af, gp, hm] = await Promise.all([
         getDashboardSummary(),
         getWeightTrend(90),
         getActivityFeed(10),
         getGoalProgress(),
         getWorkoutHeatmap(12),
-        getVo2Trend(),
       ]);
       setSummary(s);
       setWeightTrend(wt);
       setActivities(af);
       setGoalProgress(gp);
       setHeatmapData(hm);
-      setVo2Trend(v2);
     } catch {
       setError("Failed to load dashboard data. Make sure the backend is running.");
     } finally {
@@ -74,6 +71,9 @@ export default function Dashboard() {
   }
 
   const measurementSystem = profile?.measurement_system ?? "imperial";
+  const age = profile?.dob
+    ? Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
+    : 46;
   const currentWeightRaw = summary?.latest_weight?.weight_lbs ?? summary?.latest_dexa?.total_weight_lbs;
   const currentWeight = currentWeightRaw != null ? convertWeight(currentWeightRaw, measurementSystem) : undefined;
   const currentBF = summary?.latest_dexa?.body_fat_pct ?? 28.4;
@@ -158,7 +158,7 @@ export default function Dashboard() {
                 vo2Current={goalProgress?.vo2_current ?? currentVO2}
                 vo2Goal={goalProgress?.vo2_goal ?? 50}
               />
-              <Vo2TrendCard data={vo2Trend} goal={summary?.goal_vo2max ?? 50} />
+              <Vo2GaugeCard vo2max={currentVO2} goal={summary?.goal_vo2max ?? 50} age={age} />
               <QuickWeightLog onLogged={fetchAll} />
             </div>
           </div>
