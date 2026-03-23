@@ -6,7 +6,6 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Dot,
 } from "recharts";
 import type { Vo2MaxLog } from "../../types";
 
@@ -113,8 +112,10 @@ export default function Vo2TrendCard({ data, goal }: Props) {
               tickLine={false}
             />
             <Tooltip
-              formatter={(v: number) => [v.toFixed(1), "VO₂ Max"]}
-              labelFormatter={formatDate}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(v: any) => [typeof v === "number" ? v.toFixed(1) : v, "VO₂ Max"]}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              labelFormatter={(label: any) => formatDate(String(label))}
               contentStyle={{
                 fontSize: 12,
                 border: "1px solid #e5e7eb",
