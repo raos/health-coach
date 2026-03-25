@@ -10,6 +10,7 @@ export async function generateTrainingPlan(config?: {
   strength_days: number;
   cardio_days: number;
   rest_days: number;
+  force?: boolean;
 }): Promise<TrainingPlan> {
   const res = await client.post("/api/coach/training-plan", config ?? {});
   return res.data;

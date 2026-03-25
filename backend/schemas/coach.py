@@ -19,6 +19,7 @@ class GenerateTrainingPlanRequest(BaseModel):
     strength_days: int = 4
     cardio_days: int = 2
     rest_days: int = 1
+    force: bool = False
 
 
 class ChatMessage(BaseModel):

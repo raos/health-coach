@@ -32,14 +32,15 @@ def generate_training_plan(
     config_str = f"{payload.strength_days}s{payload.cardio_days}c{payload.rest_days}r"
     context_hash = context_hash + config_str
 
-    existing = (
-        db.query(TrainingPlan)
-        .filter(TrainingPlan.context_hash == context_hash, TrainingPlan.is_active == True)
-        .order_by(desc(TrainingPlan.generated_at))
-        .first()
-    )
-    if existing:
-        return existing
+    if not payload.force:
+        existing = (
+            db.query(TrainingPlan)
+            .filter(TrainingPlan.context_hash == context_hash, TrainingPlan.is_active == True)
+            .order_by(desc(TrainingPlan.generated_at))
+            .first()
+        )
+        if existing:
+            return existing
 
     try:
         plan_data = claude_service.generate_training_plan(

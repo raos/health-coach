@@ -230,7 +230,7 @@ export default function Coach() {
     setGenerating(true);
     setError("");
     try {
-      const p = await generateTrainingPlan({ strength_days: strengthDays, cardio_days: cardioDays, rest_days: restDays });
+      const p = await generateTrainingPlan({ strength_days: strengthDays, cardio_days: cardioDays, rest_days: restDays, force: true });
       setPlan(p);
       try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
     } catch (e: any) {
