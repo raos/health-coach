@@ -20,6 +20,17 @@ Tonal uses a cable/pulley system with electronic resistance (0-200 lbs, eccentri
 - Core: Cable crunch, cable woodchop, pallof press, cable pull-through
 **NOT available**: free barbells, dumbbells, leg press machine (sled), traditional squat rack, pull-up bar
 
+## Core Training (Cardio Days Only)
+Add a 10-20 minute core circuit at the END of every cardio session. Core exercises must use ONLY:
+- **Bodyweight**: plank variations, dead bug, hollow body hold, bird dog, leg raises, Russian twists, mountain climbers, bicycle crunches, V-ups, flutter kicks
+- **10 lb medicine ball**: medicine ball Russian twist, medicine ball slam, medicine ball overhead sit-up, medicine ball woodchop, medicine ball crunch
+- **20 lb plate**: plate crunch, plate Russian twist, plate overhead sit-up, plate woodchop, plate weighted plank (placed on back)
+
+Core programming guidelines:
+- 3-4 exercises, 2-3 sets each, 45-60 seconds or 10-20 reps depending on the movement
+- Alternate between anti-rotation, anti-extension, and rotation/flexion movements for balanced core development
+- Progress difficulty weekly (increase reps, add weight, or reduce rest)
+
 ## Training Structure
 - Upper/lower split with configurable days per week (see plan request for specifics)
 - 2-3 additional cardio sessions per week (Zone 2 + one higher intensity)
@@ -84,7 +95,7 @@ Return a JSON object with this EXACT structure for the requested days only (no m
     {{
       "day": "Tuesday",
       "type": "Cardio",
-      "focus": "Zone 2 endurance",
+      "focus": "Zone 2 endurance + core",
       "exercises": [
         {{
           "name": "Zone 2 Treadmill/Outdoor Run",
@@ -94,9 +105,36 @@ Return a JSON object with this EXACT structure for the requested days only (no m
           "rest_seconds": 0,
           "coaching_note": "Keep HR at 130-145 bpm (conversational pace). This builds aerobic base for VO2 max improvement.",
           "progression_note": "Add 5 min per week until you reach 60 min sessions"
+        }},
+        {{
+          "name": "Dead Bug",
+          "tonal_setup": "Bodyweight - lie on back, arms extended to ceiling",
+          "sets": 3,
+          "reps": "10 each side",
+          "rest_seconds": 30,
+          "coaching_note": "Press lower back into floor throughout. Extend opposite arm/leg slowly, exhale on extension.",
+          "progression_note": "Progress to adding a 10 lb medicine ball held between hands and knees"
+        }},
+        {{
+          "name": "Medicine Ball Russian Twist",
+          "tonal_setup": "10 lb medicine ball - seated, feet slightly elevated",
+          "sets": 3,
+          "reps": "20 total",
+          "rest_seconds": 30,
+          "coaching_note": "Rotate from the trunk, not just the arms. Control the movement — do not swing.",
+          "progression_note": "Progress to 20 lb plate when 20 reps feel easy for 2 sessions"
+        }},
+        {{
+          "name": "Plank",
+          "tonal_setup": "Bodyweight - forearms on floor",
+          "sets": 3,
+          "reps": "45-60 sec",
+          "rest_seconds": 30,
+          "coaching_note": "Squeeze glutes and abs. Do not let hips sag or pike. Breathe normally.",
+          "progression_note": "Progress to RKC plank or add 20 lb plate on lower back"
         }}
       ],
-      "session_notes": "Zone 2 is critical for VO2 max improvement. Do not let HR exceed 145 bpm."
+      "session_notes": "Zone 2 is critical for VO2 max improvement. Do not let HR exceed 145 bpm. Follow immediately with 10-15 min core circuit while your heart rate comes down."
     }}
   ],
   "weekly_notes": "Notes about this specific week's focus and any adjustments",
