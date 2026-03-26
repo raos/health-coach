@@ -49,6 +49,10 @@ from mcp_server import sse_endpoint, messages_endpoint
 app.add_route("/mcp/sse", sse_endpoint)
 app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
 
+# Garmin push-data — API key auth (not JWT), called from local sync script
+from routers.garmin import push_data as garmin_push_data
+app.add_api_route("/api/garmin/push-data", garmin_push_data, methods=["POST"], tags=["garmin"])
+
 # ── Protected routes (JWT required) ─────────────────────────────────────────
 _auth = [Depends(verify_token)]
 app.include_router(weight.router, dependencies=_auth)

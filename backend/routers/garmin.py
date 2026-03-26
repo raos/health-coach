@@ -1,11 +1,12 @@
 import json
 import os
 from datetime import date, timedelta, datetime
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from config import settings
 from database.engine import get_db
 from database.models import GarminDailyCache, Vo2MaxLog
 from services.garmin_service import garmin_service
@@ -310,3 +311,78 @@ def get_snapshot():
         return garmin_service.get_health_snapshot()
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+# ── Push-data endpoint (MCP API key auth, no Garmin login required) ────────────
+
+class DailyRecord(BaseModel):
+    date: date
+    sleep_duration_hours: Optional[float] = None
+    sleep_score: Optional[int] = None
+    deep_min: Optional[int] = None
+    rem_min: Optional[int] = None
+    light_min: Optional[int] = None
+    steps: Optional[int] = None
+    resting_hr: Optional[int] = None
+
+
+class Vo2Record(BaseModel):
+    date: date
+    vo2max: float
+
+
+class PushDataPayload(BaseModel):
+    daily: List[DailyRecord] = []
+    vo2max: List[Vo2Record] = []
+
+
+@router.post("/push-data")
+def push_data(
+    payload: PushDataPayload,
+    key: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Accept Garmin data from an external script and write it to the local cache.
+    Authenticated with the MCP API key (?key=<MCP_API_KEY>) — no Garmin login needed.
+    This lets a local script push data to the deployed Railway app without the
+    backend ever needing to authenticate directly to Garmin.
+    """
+    if not settings.mcp_api_key or key != settings.mcp_api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    upserted_daily = 0
+    for record in payload.daily:
+        existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == record.date).first()
+        if existing:
+            for field in ("sleep_duration_hours", "sleep_score", "deep_min", "rem_min",
+                          "light_min", "steps", "resting_hr"):
+                val = getattr(record, field)
+                if val is not None:
+                    setattr(existing, field, val)
+            existing.synced_at = datetime.utcnow()
+        else:
+            db.add(GarminDailyCache(
+                date=record.date,
+                sleep_duration_hours=record.sleep_duration_hours,
+                sleep_score=record.sleep_score,
+                deep_min=record.deep_min,
+                rem_min=record.rem_min,
+                light_min=record.light_min,
+                steps=record.steps,
+                resting_hr=record.resting_hr,
+                synced_at=datetime.utcnow(),
+            ))
+        upserted_daily += 1
+
+    upserted_vo2 = 0
+    for record in payload.vo2max:
+        existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.date == record.date).first()
+        if existing:
+            existing.vo2max = record.vo2max
+        else:
+            db.add(Vo2MaxLog(date=record.date, vo2max=record.vo2max, source="garmin"))
+        upserted_vo2 += 1
+
+    db.commit()
+    return {"upserted_daily": upserted_daily, "upserted_vo2": upserted_vo2}
