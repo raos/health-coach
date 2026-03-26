@@ -313,6 +313,65 @@ def get_snapshot():
         raise HTTPException(status_code=502, detail=str(e))
 
 
+# ── Paste-data endpoint (JWT auth, called from Settings UI) ───────────────────
+
+class PasteDataRequest(BaseModel):
+    json_data: str  # raw JSON string copied from Garmin Connect DevTools
+
+
+@router.post("/paste-data")
+def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db)):
+    """
+    Parse a raw Garmin daily summary JSON (copied from DevTools) and upsert
+    into GarminDailyCache. Accepts the usersummary format:
+    {"calendarDate": "...", "totalSteps": ..., "restingHeartRate": ..., ...}
+    """
+    try:
+        data = json.loads(payload.json_data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Expected a JSON object, not an array.")
+
+    date_str = data.get("calendarDate") or data.get("summaryDate")
+    if not date_str:
+        raise HTTPException(status_code=400, detail="No 'calendarDate' field found in JSON.")
+
+    try:
+        row_date = date.fromisoformat(date_str[:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str}")
+
+    steps = data.get("totalSteps") or data.get("steps")
+    resting_hr = data.get("restingHeartRate") or data.get("restingHeartRateValue")
+
+    if steps is None and resting_hr is None:
+        raise HTTPException(status_code=400, detail="No usable fields found (totalSteps, restingHeartRate).")
+
+    existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == row_date).first()
+    if existing:
+        if steps is not None:
+            existing.steps = int(steps)
+        if resting_hr is not None:
+            existing.resting_hr = int(resting_hr)
+        existing.synced_at = datetime.utcnow()
+    else:
+        db.add(GarminDailyCache(
+            date=row_date,
+            steps=int(steps) if steps is not None else None,
+            resting_hr=int(resting_hr) if resting_hr is not None else None,
+            synced_at=datetime.utcnow(),
+        ))
+    db.commit()
+
+    return {
+        "date": row_date.isoformat(),
+        "steps": int(steps) if steps is not None else None,
+        "resting_hr": int(resting_hr) if resting_hr is not None else None,
+    }
+
+
 # ── Push-data endpoint (MCP API key auth, no Garmin login required) ────────────
 
 class DailyRecord(BaseModel):

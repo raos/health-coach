@@ -21,6 +21,12 @@ export default function Settings() {
   const [tokenImportError, setTokenImportError] = useState("");
   const [tokenImportOk, setTokenImportOk] = useState(false);
 
+  const [showPasteData, setShowPasteData] = useState(false);
+  const [pasteJson, setPasteJson] = useState("");
+  const [pasteImporting, setPasteImporting] = useState(false);
+  const [pasteError, setPasteError] = useState("");
+  const [pasteResult, setPasteResult] = useState<{ date: string; steps: number | null; resting_hr: number | null } | null>(null);
+
   // Profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileForm, setProfileForm] = useState<Partial<UserProfile>>({});
@@ -175,6 +181,22 @@ export default function Settings() {
       setTokenImportError(e?.response?.data?.detail || "Import failed.");
     } finally {
       setTokenImporting(false);
+    }
+  }
+
+  async function importPasteData() {
+    setPasteError("");
+    setPasteResult(null);
+    if (!pasteJson.trim()) return;
+    setPasteImporting(true);
+    try {
+      const res = await client.post("/api/garmin/paste-data", { json_data: pasteJson.trim() });
+      setPasteResult(res.data);
+      setPasteJson("");
+    } catch (e: any) {
+      setPasteError(e?.response?.data?.detail || "Import failed.");
+    } finally {
+      setPasteImporting(false);
     }
   }
 
@@ -368,6 +390,50 @@ export default function Settings() {
                       {tokenImporting ? "Importing..." : "Import Tokens"}
                     </button>
                   </div>
+                </div>
+              )}
+              {/* Paste daily summary JSON */}
+              <div className="mt-3">
+                <button
+                  onClick={() => { setShowPasteData(!showPasteData); setPasteError(""); setPasteResult(null); }}
+                  className="text-xs text-blue-600 dark:text-blue-400 underline"
+                >
+                  {showPasteData ? "Hide" : "Paste daily summary JSON from Garmin Connect →"}
+                </button>
+              </div>
+              {showPasteData && (
+                <div className="mt-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">Import one day from Garmin Connect</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                      On connect.garmin.com → open DevTools (⌘⌥I) → Network tab → Fetch/XHR → navigate to a date →
+                      find a request with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">usersummary</code> in the URL →
+                      Copy Response → paste below.
+                    </p>
+                  </div>
+                  <textarea
+                    value={pasteJson}
+                    onChange={(e) => { setPasteJson(e.target.value); setPasteError(""); setPasteResult(null); }}
+                    placeholder={'{"calendarDate": "2026-03-26", "totalSteps": 20009, "restingHeartRate": 54, ...}'}
+                    rows={5}
+                    className="w-full px-3 py-2 text-xs font-mono border border-blue-300 dark:border-blue-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
+                  />
+                  {pasteError && <p className="text-xs text-red-600 dark:text-red-400">{pasteError}</p>}
+                  {pasteResult && (
+                    <p className="text-xs text-green-700 dark:text-green-400">
+                      Imported {pasteResult.date}
+                      {pasteResult.steps != null ? ` · steps: ${pasteResult.steps.toLocaleString()}` : ""}
+                      {pasteResult.resting_hr != null ? ` · resting HR: ${pasteResult.resting_hr} bpm` : ""}
+                    </p>
+                  )}
+                  <button
+                    onClick={importPasteData}
+                    disabled={pasteImporting || !pasteJson.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {pasteImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    {pasteImporting ? "Importing..." : "Import"}
+                  </button>
                 </div>
               )}
             </div>
