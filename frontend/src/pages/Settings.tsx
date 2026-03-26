@@ -25,7 +25,7 @@ export default function Settings() {
   const [pasteJson, setPasteJson] = useState("");
   const [pasteImporting, setPasteImporting] = useState(false);
   const [pasteError, setPasteError] = useState("");
-  const [pasteResult, setPasteResult] = useState<{ date: string; steps: number | null; resting_hr: number | null } | null>(null);
+  const [pasteResult, setPasteResult] = useState<{ date: string; steps: number | null; resting_hr: number | null; sleep_duration_hours: number | null } | null>(null);
 
   // Profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -424,6 +424,7 @@ export default function Settings() {
                       Imported {pasteResult.date}
                       {pasteResult.steps != null ? ` · steps: ${pasteResult.steps.toLocaleString()}` : ""}
                       {pasteResult.resting_hr != null ? ` · resting HR: ${pasteResult.resting_hr} bpm` : ""}
+                      {pasteResult.sleep_duration_hours != null ? ` · sleep: ${pasteResult.sleep_duration_hours}h` : ""}
                     </p>
                   )}
                   <button

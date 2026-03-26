@@ -71,6 +71,10 @@ def extract_record(obj: dict) -> dict | None:
     if rhr is not None:
         record["resting_hr"] = int(rhr)
 
+    sleeping_secs = obj.get("sleepingSeconds")
+    if sleeping_secs:
+        record["sleep_duration_hours"] = round(sleeping_secs / 3600, 1)
+
     # Only return if we got at least one useful metric
     if len(record) > 1:
         return record
@@ -185,6 +189,8 @@ def main():
             parts.append(f"steps: {r['steps']:,}")
         if "resting_hr" in r:
             parts.append(f"resting_hr: {r['resting_hr']}")
+        if "sleep_duration_hours" in r:
+            parts.append(f"sleep: {r['sleep_duration_hours']}h")
         print(f"  {r['date']}  {', '.join(parts) if parts else '(no metrics)'}")
 
     print(f"\nPushing to {app_url} ...")

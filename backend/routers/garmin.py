@@ -342,9 +342,11 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
 
     steps = data.get("totalSteps") or data.get("steps")
     resting_hr = data.get("restingHeartRate") or data.get("restingHeartRateValue")
+    sleeping_secs = data.get("sleepingSeconds")
+    sleep_duration_hours = round(sleeping_secs / 3600, 1) if sleeping_secs else None
 
-    if steps is None and resting_hr is None:
-        raise HTTPException(status_code=400, detail="No usable fields found (totalSteps, restingHeartRate).")
+    if steps is None and resting_hr is None and sleep_duration_hours is None:
+        raise HTTPException(status_code=400, detail="No usable fields found (totalSteps, restingHeartRate, sleepingSeconds).")
 
     existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == row_date).first()
     if existing:
@@ -352,12 +354,15 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
             existing.steps = int(steps)
         if resting_hr is not None:
             existing.resting_hr = int(resting_hr)
+        if sleep_duration_hours is not None:
+            existing.sleep_duration_hours = sleep_duration_hours
         existing.synced_at = datetime.utcnow()
     else:
         db.add(GarminDailyCache(
             date=row_date,
             steps=int(steps) if steps is not None else None,
             resting_hr=int(resting_hr) if resting_hr is not None else None,
+            sleep_duration_hours=sleep_duration_hours,
             synced_at=datetime.utcnow(),
         ))
     db.commit()
@@ -366,6 +371,7 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
         "date": row_date.isoformat(),
         "steps": int(steps) if steps is not None else None,
         "resting_hr": int(resting_hr) if resting_hr is not None else None,
+        "sleep_duration_hours": sleep_duration_hours,
     }
 
 
