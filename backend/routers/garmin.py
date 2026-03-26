@@ -189,7 +189,6 @@ def sync_vo2max_history(days: int = 90, db: Session = Depends(get_db)):
 
 @router.get("/sleep/range")
 def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
-    _require_auth()
     # Try live fetch; cache any results that come back
     try:
         live = garmin_service.get_sleep_range(days)
@@ -230,7 +229,6 @@ def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
 
 @router.get("/steps/range")
 def get_steps_range(days: int = 30, db: Session = Depends(get_db)):
-    _require_auth()
     try:
         live = garmin_service.get_steps_range(days)
         for row in live:
@@ -251,7 +249,6 @@ def get_steps_range(days: int = 30, db: Session = Depends(get_db)):
 
 @router.get("/resting-hr/range")
 def get_resting_hr_range(days: int = 30, db: Session = Depends(get_db)):
-    _require_auth()
     try:
         live = garmin_service.get_resting_hr_range(days)
         for row in live:
