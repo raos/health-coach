@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { HeartPulse, RefreshCw, Brain, Plus, Moon, Footprints, Activity } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import {
-  ResponsiveContainer, ComposedChart, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import PageWrapper from "../components/layout/PageWrapper";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
@@ -103,7 +103,6 @@ export default function HealthAdvisor() {
   const hasAnyData = (sleepData?.length ?? 0) + (stepsData?.length ?? 0) + (rhrData?.length ?? 0) > 0;
 
   const avgSleepHours = avg(sleepData?.map(d => d.duration_hours) ?? []);
-  const avgSleepScore = avg(sleepData?.map(d => d.score) ?? []);
   const avgSteps = avg(stepsData?.map(d => d.steps) ?? []);
   const avgRhr = avg(rhrData?.map(d => d.rhr) ?? []);
 
@@ -176,7 +175,6 @@ export default function HealthAdvisor() {
                     {avgSleepHours != null && (
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         Avg <span className="font-semibold text-indigo-600">{avgSleepHours}h</span>
-                        {avgSleepScore != null && <> · Score <span className="font-semibold text-amber-600">{avgSleepScore}</span></>}
                       </span>
                     )}
                   </div>
@@ -184,27 +182,18 @@ export default function HealthAdvisor() {
                     <GarminPlaceholder message="No sleep data for this period." />
                   ) : (
                     <ResponsiveContainer width="100%" height={220}>
-                      <ComposedChart data={sleepData!} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                      <BarChart data={sleepData!} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                        <YAxis yAxisId="hrs" domain={[0, 10]} tickFormatter={v => `${v}h`} tick={{ fontSize: 11 }} />
-                        <YAxis yAxisId="score" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} hide />
+                        <YAxis domain={[0, 10]} tickFormatter={v => `${v}h`} tick={{ fontSize: 11 }} />
                         <Tooltip
-                          formatter={(value: any, name: any) => {
-                            if (name === "Hours") return [`${value}h`, "Sleep"];
-                            if (name === "Score") return [value, "Sleep Score"];
-                            if (name === "Deep") return [`${value}m`, "Deep"];
-                            if (name === "REM") return [`${value}m`, "REM"];
-                            return [value, name];
-                          }}
+                          formatter={(value: any) => [`${value}h`, "Sleep"]}
                           labelFormatter={(label: any) => shortDate(String(label))}
                         />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <ReferenceLine yAxisId="hrs" y={7.5} stroke="#818cf8" strokeDasharray="4 4" label={{ value: "7.5h goal", fontSize: 10, fill: "#818cf8" }} />
-                        {avgSleepHours != null && <ReferenceLine yAxisId="hrs" y={avgSleepHours} stroke="#f97316" strokeDasharray="4 4" label={{ value: `avg ${avgSleepHours}h`, fontSize: 10, fill: "#f97316", position: "insideTopRight" }} />}
-                        <Bar yAxisId="hrs" dataKey="duration_hours" name="Hours" fill="#818cf8" opacity={0.85} radius={[3, 3, 0, 0]} />
-                        <Line yAxisId="score" dataKey="score" name="Score" stroke="#f59e0b" dot={false} strokeWidth={2} />
-                      </ComposedChart>
+                        <ReferenceLine y={7.5} stroke="#818cf8" strokeDasharray="4 4" label={{ value: "7.5h goal", fontSize: 10, fill: "#818cf8" }} />
+                        {avgSleepHours != null && <ReferenceLine y={avgSleepHours} stroke="#f97316" strokeDasharray="4 4" label={{ value: `avg ${avgSleepHours}h`, fontSize: 10, fill: "#f97316", position: "insideTopRight" }} />}
+                        <Bar dataKey="duration_hours" name="Hours" fill="#818cf8" opacity={0.85} radius={[3, 3, 0, 0]} />
+                      </BarChart>
                     </ResponsiveContainer>
                   )}
                 </div>
