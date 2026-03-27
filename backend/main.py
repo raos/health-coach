@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.engine import init_db, get_db
 from dependencies import verify_token
-from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin
+from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email
 from routers import auth
 
 app = FastAPI(
@@ -25,6 +25,25 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event():
     init_db()
+    _start_scheduler()
+
+
+def _start_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from services.weekly_summary_service import send_weekly_summary
+    import logging
+
+    scheduler = BackgroundScheduler(timezone="America/New_York")
+    scheduler.add_job(
+        send_weekly_summary,
+        CronTrigger(day_of_week="sun", hour=19, minute=30, timezone="America/New_York"),
+        id="weekly_summary",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.start()
+    logging.getLogger(__name__).info("Scheduler started — weekly summary fires every Sunday 7:30 PM ET")
 
 
 # ── Public routes (no JWT required) ─────────────────────────────────────────
@@ -67,6 +86,7 @@ app.include_router(profile.router, dependencies=_auth)
 app.include_router(hevy.router, dependencies=_auth)
 app.include_router(supplements.router, dependencies=_auth)
 app.include_router(checkin.router, dependencies=_auth)
+app.include_router(email.router, dependencies=_auth)
 
 
 @app.get("/api/health-check")

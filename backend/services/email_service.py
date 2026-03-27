@@ -176,3 +176,19 @@ def send_plan_email(
     if pdf_bytes and pdf_filename:
         params["attachments"] = [{"filename": pdf_filename, "content": list(pdf_bytes)}]
     resend.Emails.send(params)
+
+
+def send_html_email(to_address: str, subject: str, html: str) -> None:
+    """Send an inline HTML email (no attachment) via Resend."""
+    if not settings.resend_api_key:
+        raise RuntimeError("RESEND_API_KEY not configured.")
+    if not to_address:
+        raise RuntimeError("No recipient email. Set your email in Settings → Profile.")
+
+    resend.api_key = settings.resend_api_key
+    resend.Emails.send({
+        "from": "HealthCoach <onboarding@resend.dev>",
+        "to": [to_address],
+        "subject": subject,
+        "html": html,
+    })
