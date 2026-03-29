@@ -312,6 +312,52 @@ def get_snapshot():
 
 # ── Paste-data endpoint (JWT auth, called from Settings UI) ───────────────────
 
+def _extract_sleep_hours(data: dict, row_date: date) -> float | None:
+    """
+    Extract overnight sleep duration from bodyBatteryActivityEventList.
+    Garmin's 'sleepingSeconds' only counts sleep within the midnight-to-midnight
+    window of that calendar date, so it misses the pre-midnight portion of the
+    previous night's sleep.  The bodyBattery SLEEP event captures the full episode.
+    Falls back to sleepingSeconds if no suitable event is found.
+    """
+    events = data.get("bodyBatteryActivityEventList") or []
+    best_hours = None
+    prev_day = row_date - timedelta(days=1)
+
+    for event in events:
+        if event.get("eventType") != "SLEEP":
+            continue
+        duration_ms = event.get("durationInMilliseconds")
+        if not duration_ms or duration_ms < 3_600_000:  # skip < 1 hour
+            continue
+        start_gmt_str = event.get("eventStartTimeGmt")
+        tz_offset_ms = event.get("timezoneOffset") or 0
+        if not start_gmt_str:
+            continue
+        try:
+            start_gmt = datetime.fromisoformat(start_gmt_str)
+            start_local = start_gmt + timedelta(milliseconds=tz_offset_ms)
+        except ValueError:
+            continue
+        # Overnight sleep: started evening of prev_day (≥18:00) or early morning of row_date (<14:00)
+        start_date = start_local.date()
+        start_hour = start_local.hour
+        is_overnight = (
+            (start_date == prev_day and start_hour >= 18)
+            or (start_date == row_date and start_hour < 14)
+        )
+        if is_overnight:
+            hours = round(duration_ms / 3_600_000, 1)
+            if best_hours is None or hours > best_hours:
+                best_hours = hours
+
+    if best_hours is not None:
+        return best_hours
+    # Fallback: sleepingSeconds (counts only the portion within this calendar day's window)
+    sleeping_secs = data.get("sleepingSeconds")
+    return round(sleeping_secs / 3600, 1) if sleeping_secs else None
+
+
 class PasteDataRequest(BaseModel):
     json_data: str  # raw JSON string copied from Garmin Connect DevTools
 
@@ -342,8 +388,7 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
 
     steps = data.get("totalSteps") or data.get("steps")
     resting_hr = data.get("restingHeartRate") or data.get("restingHeartRateValue")
-    sleeping_secs = data.get("sleepingSeconds")
-    sleep_duration_hours = round(sleeping_secs / 3600, 1) if sleeping_secs else None
+    sleep_duration_hours = _extract_sleep_hours(data, row_date)
 
     if steps is None and resting_hr is None and sleep_duration_hours is None:
         raise HTTPException(status_code=400, detail="No usable fields found (totalSteps, restingHeartRate, sleepingSeconds).")

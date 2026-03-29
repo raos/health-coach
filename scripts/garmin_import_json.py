@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 try:
@@ -55,6 +56,49 @@ def load_env():
 
 # ── JSON parsing ──────────────────────────────────────────────────────────────
 
+def _extract_sleep_hours(obj: dict, row_date: date) -> float | None:
+    """
+    Extract full overnight sleep from bodyBatteryActivityEventList.
+    sleepingSeconds only counts the midnight-to-midnight window, missing the
+    pre-midnight portion of the previous night's sleep.  The bodyBattery SLEEP
+    event captures the full episode.  Falls back to sleepingSeconds if absent.
+    """
+    events = obj.get("bodyBatteryActivityEventList") or []
+    prev_day = row_date - timedelta(days=1)
+    best_hours = None
+
+    for event in events:
+        if event.get("eventType") != "SLEEP":
+            continue
+        duration_ms = event.get("durationInMilliseconds")
+        if not duration_ms or duration_ms < 3_600_000:
+            continue
+        start_gmt_str = event.get("eventStartTimeGmt")
+        tz_offset_ms = event.get("timezoneOffset") or 0
+        if not start_gmt_str:
+            continue
+        try:
+            start_gmt = datetime.fromisoformat(start_gmt_str)
+            start_local = start_gmt + timedelta(milliseconds=tz_offset_ms)
+        except ValueError:
+            continue
+        start_date = start_local.date()
+        start_hour = start_local.hour
+        is_overnight = (
+            (start_date == prev_day and start_hour >= 18)
+            or (start_date == row_date and start_hour < 14)
+        )
+        if is_overnight:
+            hours = round(duration_ms / 3_600_000, 1)
+            if best_hours is None or hours > best_hours:
+                best_hours = hours
+
+    if best_hours is not None:
+        return best_hours
+    sleeping_secs = obj.get("sleepingSeconds")
+    return round(sleeping_secs / 3600, 1) if sleeping_secs else None
+
+
 def extract_record(obj: dict) -> dict | None:
     """Extract steps and/or resting_hr from a single day's JSON object."""
     date_str = obj.get("calendarDate") or obj.get("summaryDate") or obj.get("date")
@@ -62,6 +106,7 @@ def extract_record(obj: dict) -> dict | None:
         return None
 
     record = {"date": date_str[:10]}  # normalize to YYYY-MM-DD
+    row_date = date.fromisoformat(date_str[:10])
 
     steps = obj.get("totalSteps") or obj.get("steps")
     if steps is not None:
@@ -71,9 +116,9 @@ def extract_record(obj: dict) -> dict | None:
     if rhr is not None:
         record["resting_hr"] = int(rhr)
 
-    sleeping_secs = obj.get("sleepingSeconds")
-    if sleeping_secs:
-        record["sleep_duration_hours"] = round(sleeping_secs / 3600, 1)
+    sleep_h = _extract_sleep_hours(obj, row_date)
+    if sleep_h is not None:
+        record["sleep_duration_hours"] = sleep_h
 
     # Only return if we got at least one useful metric
     if len(record) > 1:
