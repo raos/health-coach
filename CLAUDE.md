@@ -27,10 +27,10 @@ The `.env` file lives at the **repo root** (`/health/.env`), not inside `backend
 
 ```
 backend/          FastAPI + SQLAlchemy (SQLite)
-  main.py         App init, CORS, router registration, MCP routes, /api/settings/status
+  main.py         App init, CORS, router registration, MCP routes, /api/settings/status, APScheduler startup
   config.py       Pydantic Settings — all secrets loaded from root .env
   dependencies.py verify_token() FastAPI dependency (JWT validation)
-  mcp_server.py   Remote MCP server (13 tools, SSE transport, API key auth)
+  mcp_server.py   Remote MCP server (14 tools, SSE transport, API key auth)
   database/
     engine.py     SQLite engine (WAL mode), init_db(), seed on first run
     models.py     14 ORM models
@@ -38,8 +38,11 @@ backend/          FastAPI + SQLAlchemy (SQLite)
     auth.py       Google OAuth flow + JWT issuance (public, no auth required)
     nutrition.py  Meal plans, food log (GET+POST), nutritionist chat
     coach.py      Training plans, coach chat, data sync
+    checkin.py    Weekly check-in POST/GET endpoints
+    email.py      Manual trigger for weekly summary email (POST /api/email/weekly-summary)
   services/       All business logic and external API calls
-    claude_service.py  All Claude AI calls — plans, chat, parse_meal_description()
+    claude_service.py        All Claude AI calls — plans, chat, parse_meal_description()
+    weekly_summary_service.py  Gathers 7-day data, builds HTML email, called by scheduler + endpoint
   prompts/        Claude system prompts as Python string constants
     nutrition_system.py  Contains NUTRITION_SYSTEM_PROMPT + NUTRITIONIST_CHAT_SYSTEM
   schemas/        Pydantic request/response models
@@ -106,7 +109,7 @@ SQLite at `backend/health.db`. **Never delete health.db** — it contains Sandee
 - VO2 max baseline: 2026-03-13, 45.0
 - User profile: Sandeep Rao, DOB 1979-11-11, height 68 in, goal 18% BF + VO2 50 by 2026-12-31, 2200 kcal/day
 
-**All 14 models:**
+**All 15 models:**
 
 | Table | Model | Notes |
 |-------|-------|-------|
@@ -124,6 +127,7 @@ SQLite at `backend/health.db`. **Never delete health.db** — it contains Sandee
 | `oauth_tokens` | `OAuthToken` | Strava OAuth tokens |
 | `garmin_daily_cache` | `GarminDailyCache` | Cached Garmin daily summaries |
 | `user_profile` | `UserProfile` | Goals, calorie target, preferences |
+| `weekly_checkins` | `WeeklyCheckin` | Weekly self-assessment: training/energy/sleep/diet/stress ratings + notes |
 
 To add a new table: add model to `database/models.py`, it is created automatically by `Base.metadata.create_all()` on startup.
 
@@ -162,7 +166,7 @@ All prompts use Python f-string `{placeholder}` injection — edit the prompt fi
 
 | File | Prompt constant | Key constraints |
 |------|----------------|----------------|
-| `coach_system.py` | `COACH_SYSTEM_PROMPT`, `COACH_CHAT_SYSTEM` | Tonal-only (cable machine, 0–200 lbs). Upper A = horizontal push + vertical pull. Upper B = incline/overhead + horizontal pull. Lower A = quad-dominant. Lower B = hip-dominant. Never repeat movement patterns between A and B. |
+| `coach_system.py` | `COACH_SYSTEM_PROMPT`, `COACH_CHAT_SYSTEM` | Tonal-only (cable machine, 0–200 lbs). Upper A = horizontal push + vertical pull. Upper B = incline/overhead + horizontal pull. Lower A = quad-dominant. Lower B = hip-dominant. Never repeat movement patterns between A and B. Cardio days include a 10–15 min core circuit (bodyweight / 10 lb medicine ball / 20 lb plate only). |
 | `nutrition_system.py` | `NUTRITION_SYSTEM_PROMPT`, `NUTRITIONIST_CHAT_SYSTEM` | Vegetarian + eggs. Bobby Parish philosophy. Cook-once rule. `NUTRITIONIST_CHAT_SYSTEM` injects today's food log + active meal plan summary + calorie target on every message. |
 | `health_advisor_system.py` | `HEALTH_ADVISOR_SYSTEM_PROMPT` | Peter Attia (Outlive) + Andrew Huberman framework. VO2 max as longevity predictor. |
 
@@ -203,7 +207,7 @@ Reuses `CoachConversation` table with `session_id = "nutrition-default"` (coach 
 
 ## MCP Remote Server
 
-`backend/mcp_server.py` exposes 13 tools over HTTP+SSE. Mounted in `main.py` before the JWT block (public routes, but API-key authenticated):
+`backend/mcp_server.py` exposes 14 tools over HTTP+SSE. Mounted in `main.py` before the JWT block (public routes, but API-key authenticated):
 
 ```python
 app.add_route("/mcp/sse", sse_endpoint)
@@ -227,7 +231,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 Claude Desktop's "Add Custom Integration" UI requires OAuth 2.0 (MCP 2025-03-26 spec). Use `mcp-remote` via config file instead to use the API key SSE approach.
 
-### 13 MCP tools
+### 14 MCP tools
 
 | Tool | What it does |
 |------|-------------|
@@ -244,6 +248,7 @@ Claude Desktop's "Add Custom Integration" UI requires OAuth 2.0 (MCP 2025-03-26 
 | `sync_data` | Calls hevy_service.sync_workouts() + strava_service.sync_activities() |
 | `generate_meal_plan` | Calls claude_service.generate_meal_plan() via asyncio.to_thread() |
 | `generate_training_plan` | Calls claude_service.generate_training_plan() via asyncio.to_thread() |
+| `submit_weekly_checkin` | Upsert into WeeklyCheckin table (ratings + notes) |
 
 ### Starlette compatibility
 Both endpoints return `_AlreadySentResponse` (a no-op `Response` subclass) because the MCP SDK writes the HTTP response directly via the ASGI `send` callable. Without this, Starlette tries to call `await None(scope, receive, send)` and raises a `TypeError`.
@@ -284,6 +289,18 @@ curl -X POST https://<railway-host>/api/garmin/import-tokens \
   -H "Content-Type: application/json" \
   -d "{\"oauth1\": $(cat backend/garmin_session/oauth1_token.json), \"oauth2\": $(cat backend/garmin_session/oauth2_token.json)}"
 ```
+
+#### Garmin account-level rate limiting (429)
+The 429 from `sso.garmin.com` is **account-level**, not IP-level. Switching to a mobile hotspot does NOT help — the server blocks the Garmin account itself. The only resolution is to contact Garmin support or wait for the block to lift. Do not suggest IP changes as a workaround.
+
+#### Manual data import (paste-data endpoint)
+Because Garmin auth is often unavailable, daily data can be imported by pasting the `usersummary` JSON from Garmin Connect DevTools:
+- `POST /api/garmin/paste-data` — accepts `{"json_data": "<raw JSON string>"}`, extracts `totalSteps`, `restingHeartRate`, and sleep duration, upserts into `GarminDailyCache`.
+- Settings UI has a paste panel for this.
+- `scripts/garmin_import_json.py` handles batch import from saved `.json` files.
+
+#### Sleep duration extraction — use bodyBattery SLEEP event, not sleepingSeconds
+`sleepingSeconds` in the daily summary JSON only counts sleep within the midnight-to-midnight window of that calendar date. This misses the pre-midnight portion of the overnight sleep (e.g., sleep starting at 9:30 PM is truncated at midnight for the current day's sum). The `_extract_sleep_hours()` helper in `routers/garmin.py` and `garmin_import_json.py` instead reads `bodyBatteryActivityEventList` for the SLEEP event that started in the prior evening (≥18:00) and uses its full `durationInMilliseconds`. Falls back to `sleepingSeconds` if no suitable event exists.
 
 ### Hevy
 Uses direct REST API calls to `api.hevyapp.com/v1` via `backend/services/hevy_api_client.py`:
@@ -349,6 +366,24 @@ FRONTEND_URL=http://localhost:5173
 
 ---
 
+## Weekly Summary Email
+
+`backend/services/weekly_summary_service.py` → `send_weekly_summary()`:
+- Gathers last 7 days of WeightLog, HevyWorkout, NutritionLog, GarminDailyCache
+- Computes: weight avg + trend vs prior week, workout list + duration, days logged + avg kcal/protein vs target, avg steps/sleep/resting HR
+- Builds inline HTML email and sends via `send_html_email()` in `email_service.py`
+
+**Scheduler**: `_start_scheduler()` in `main.py` runs APScheduler (`BackgroundScheduler`) on startup. Fires every Sunday 19:30 ET (`CronTrigger(day_of_week="sun", hour=19, minute=30, timezone="America/New_York")`). Requires `apscheduler==3.10.4` in `requirements.txt`.
+
+**Manual trigger**: `POST /api/email/weekly-summary` (JWT required). Swagger's Authorize button won't work because `verify_token` uses `Header(None)` not `HTTPBearer`. Use curl:
+```bash
+curl -X POST https://<host>/api/email/weekly-summary \
+  -H "Authorization: Bearer <token>"
+```
+JWT token is in browser DevTools → Application → Local Storage → `auth_token`.
+
+---
+
 ## Key Constraints — Do Not Violate
 
 1. **Tonal only**: Every exercise in a generated training plan must be performable on the Tonal smart gym (cable/pulley system). No free barbells, no dumbbells, no machines not available on Tonal.
@@ -361,6 +396,8 @@ FRONTEND_URL=http://localhost:5173
 8. **Strava callback stays public**: `/api/strava/auth/callback` must never be inside a JWT-protected router. Keep it registered directly on `app` in `main.py`.
 9. **Always use Axios client**: Never use raw `fetch()` in React components. The Axios client is the only way to ensure the JWT is sent.
 10. **Food Log dates use current week**: The Food Log tab computes dates from the current calendar week's Monday — never from `parsedPlan.week_start`, which may be from a previous week.
+11. **Core exercises on cardio days**: Cardio days must include a 10–15 min core circuit using only bodyweight, a 10 lb medicine ball, or a 20 lb plate. No Tonal cable exercises in the core block.
+12. **Garmin rate limit is account-level**: The Garmin 429 is account-level, not IP-based. Do not suggest changing IP/hotspot as a fix. Use the paste-data import instead.
 
 ---
 
