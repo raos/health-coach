@@ -48,6 +48,44 @@ def _get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
+def _user_info(profile) -> dict:
+    """Return a dict with user_name, user_age, dietary_profile, and goal fields for prompt injection."""
+    from datetime import date as _d
+    name = (profile.name if profile and profile.name else "the user")
+    age = 0
+    if profile and profile.dob:
+        today = _d.today()
+        try:
+            age = today.year - profile.dob.year - (
+                (today.month, today.day) < (profile.dob.month, profile.dob.day)
+            )
+        except Exception:
+            age = 0
+
+    dietary_pref = (profile.dietary_preference if profile and profile.dietary_preference else "vegetarian")
+    cuisines = (profile.preferred_cuisines if profile and profile.preferred_cuisines else "South Indian")
+    dietary_profile = f"- Diet: {dietary_pref} (cuisines: {cuisines})"
+
+    bf_goal = profile.bf_goal_pct if profile and profile.bf_goal_pct else 18.0
+    vo2_goal = profile.vo2max_goal if profile and profile.vo2max_goal else 50.0
+    goal_date = str(profile.goal_date) if profile and profile.goal_date else "2026-12-31"
+
+    diet_label = dietary_pref.capitalize()
+    if "vegetarian" in dietary_pref.lower():
+        diet_label += " (eggs OK)"
+    user_diet = f"{cuisines} cuisine, {diet_label}"
+
+    return {
+        "user_name": name,
+        "user_age": age if age > 0 else "unknown age",
+        "dietary_profile": dietary_profile,
+        "user_diet": user_diet,
+        "bf_goal": bf_goal,
+        "vo2_goal": vo2_goal,
+        "goal_date": goal_date,
+    }
+
+
 def _build_current_stats(db: Session, user_id=None) -> str:
     q_dexa = db.query(DexaScan)
     q_weight = db.query(WeightLog)
@@ -205,8 +243,11 @@ def generate_training_plan(
 
     device_note = _device_instruction(training_device)
     measurement_note = _measurement_instruction(measurement_system)
+    ui = _user_info(profile)
 
     system = COACH_SYSTEM_PROMPT.format(
+        user_name=ui["user_name"],
+        user_age=ui["user_age"],
         current_stats=current_stats,
         recent_training=recent_training,
     ) + f"\n\n## Equipment Constraint\n{device_note}\n\n## Units\n{measurement_note}"
@@ -505,7 +546,10 @@ def generate_meal_plan(
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
     measurement_note = _measurement_instruction(measurement_system)
 
+    ui = _user_info(profile)
     system = NUTRITION_SYSTEM_PROMPT.format(
+        user_name=ui["user_name"],
+        user_age=ui["user_age"],
         calorie_context=calorie_context,
         calorie_target=calorie_target,
         breakfast_context=breakfast_context,
@@ -823,7 +867,10 @@ def generate_health_insights(db: Session, user_id=None) -> str:
 
     calorie_target = profile.calorie_target if profile else 2200
 
+    ui = _user_info(profile)
     system = HEALTH_ADVISOR_SYSTEM_PROMPT.format(
+        user_name=ui["user_name"],
+        user_age=ui["user_age"],
         user_profile=user_profile_str,
         health_data=health_data_str,
         calorie_target=calorie_target,
@@ -1108,8 +1155,18 @@ def chat_with_coach(message: str, history: list, db: Session, user_id=None) -> s
     except Exception:
         pass
 
+    ui = _user_info(profile)
     system = (
-        COACH_CHAT_SYSTEM.format(current_bf=bf, current_vo2=vo2)
+        COACH_CHAT_SYSTEM.format(
+            user_name=ui["user_name"],
+            user_age=ui["user_age"],
+            current_bf=bf,
+            current_vo2=vo2,
+            user_diet=ui["user_diet"],
+            bf_goal=ui["bf_goal"],
+            vo2_goal=ui["vo2_goal"],
+            goal_date=ui["goal_date"],
+        )
         + f"\n\n## Today's Date\nToday is {today_str}. Use this when filtering activities by date."
         + plan_section
         + checkin_section
@@ -1227,7 +1284,14 @@ def chat_with_nutritionist(message: str, history: list, db: Session, user_id=Non
     else:
         meal_plan_section = "No active meal plan generated yet."
 
+    ui = _user_info(profile)
     system = NUTRITIONIST_CHAT_SYSTEM.format(
+        user_name=ui["user_name"],
+        user_age=ui["user_age"],
+        dietary_profile=ui["dietary_profile"],
+        bf_goal=ui["bf_goal"],
+        vo2_goal=ui["vo2_goal"],
+        goal_date=ui["goal_date"],
         calorie_target=calorie_target,
         food_log_section=food_log_section,
         meal_plan_section=meal_plan_section,

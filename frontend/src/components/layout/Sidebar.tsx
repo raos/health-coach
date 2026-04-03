@@ -10,6 +10,7 @@ import {
   Moon,
   Sun,
   ClipboardCheck,
+  ShieldCheck,
 } from "lucide-react";
 import { getStoredUser } from "../auth/ProtectedRoute";
 import { useDarkMode } from "../../hooks/useDarkMode";
@@ -82,6 +83,21 @@ export default function Sidebar() {
             {label}
           </NavLink>
         ))}
+        {user?.is_admin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 text-sm font-medium transition-colors mt-2 border-t border-gray-700 pt-3 ${
+                isActive
+                  ? "bg-purple-700 text-white"
+                  : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              }`
+            }
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Admin
+          </NavLink>
+        )}
       </nav>
 
       {/* Footer */}

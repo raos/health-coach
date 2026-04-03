@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.engine import init_db, get_db
 from dependencies import verify_token
-from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email
+from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin
 from routers import auth
 
 app = FastAPI(
@@ -99,6 +99,7 @@ app.include_router(hevy.router, dependencies=_auth)
 app.include_router(supplements.router, dependencies=_auth)
 app.include_router(checkin.router, dependencies=_auth)
 app.include_router(email.router, dependencies=_auth)
+app.include_router(admin.router, dependencies=_auth)
 
 
 @app.get("/api/health-check")
