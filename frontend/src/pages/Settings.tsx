@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, X, ExternalLink, Loader2, Save } from "lucide-react";
+import { Check, X, ExternalLink, Loader2, Save, Download, Trash2 } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import client from "../api/client";
 import { getProfile, updateProfile } from "../api/profile";
@@ -35,6 +35,20 @@ export default function Settings() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   // Height input in the selected unit
   const [heightInput, setHeightInput] = useState("");
+
+  // Hevy API key
+  const [hevyKey, setHevyKey] = useState("");
+  const [hevySaving, setHevySaving] = useState(false);
+  const [hevySaved, setHevySaved] = useState(false);
+
+  // Data export
+  const [exporting, setExporting] = useState(false);
+
+  // Account deletion
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   function refreshGarminStatus() {
     client.get("/api/garmin/status")
@@ -117,6 +131,55 @@ export default function Settings() {
       setSaveError(e?.response?.data?.detail || "Failed to save profile.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveHevyKey() {
+    if (!hevyKey.trim()) return;
+    setHevySaving(true);
+    try {
+      await client.put("/api/profile", { hevy_api_key: hevyKey.trim() });
+      setHevySaved(true);
+      setHevyKey("");
+      // Refresh integration status to show Hevy as connected
+      const r = await client.get("/api/settings/status");
+      setIntegrationStatus(r.data);
+      setTimeout(() => setHevySaved(false), 3000);
+    } catch (e: any) {
+      console.error("Failed to save Hevy key:", e);
+    } finally {
+      setHevySaving(false);
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await client.get("/api/account/data-export", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `healthcoach_export_${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      console.error("Export failed:", e);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (deleteInput !== "DELETE") return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await client.delete("/api/account", { data: { confirmation: "DELETE" } });
+      localStorage.removeItem("auth_token");
+      window.location.href = "/login";
+    } catch (e: any) {
+      setDeleteError(e?.response?.data?.detail ?? "Failed to delete account.");
+      setDeleting(false);
     }
   }
 
@@ -440,24 +503,44 @@ export default function Settings() {
             </div>
 
             {/* Hevy */}
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-white font-bold text-xs">H</div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Hevy</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {integrationStatus?.hevy ? "API key configured — workouts available in Coach" : "Add HEVY_API_KEY to .env (from api.hevyapp.com/docs)"}
-                  </p>
+            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-white font-bold text-xs">H</div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Hevy</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {integrationStatus?.hevy ? "API key configured — workouts available in Coach" : "Enter your API key from app.hevyapp.com → API"}
+                    </p>
+                  </div>
                 </div>
+                {integrationStatus?.hevy ? (
+                  <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                    <Check className="w-3 h-3" /> Connected
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
+                    <X className="w-3 h-3" /> Not configured
+                  </span>
+                )}
               </div>
-              {integrationStatus?.hevy ? (
-                <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                  <Check className="w-3 h-3" /> Connected
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
-                  <X className="w-3 h-3" /> Not configured
-                </span>
+              {!integrationStatus?.hevy && (
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="password"
+                    value={hevyKey}
+                    onChange={(e) => setHevyKey(e.target.value)}
+                    placeholder="Paste your Hevy API key…"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  />
+                  <button
+                    onClick={saveHevyKey}
+                    disabled={hevySaving || !hevyKey.trim()}
+                    className="px-3 py-2 bg-gray-800 text-white text-xs font-medium rounded-lg hover:bg-gray-900 disabled:opacity-50"
+                  >
+                    {hevySaved ? "Saved!" : hevySaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -512,6 +595,72 @@ export default function Settings() {
               <a href="https://fhir.epic.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
                 Learn more <ExternalLink className="w-3 h-3" />
               </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Data & Privacy */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Data & Privacy</h2>
+          <div className="space-y-4">
+            {/* Export */}
+            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Export Your Data</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Download a ZIP of all your health data as JSON files.</p>
+              </div>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+
+            {/* Delete account */}
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">Delete Account</p>
+              <p className="text-xs text-red-600 dark:text-red-500 mt-1 mb-3">
+                This will deactivate your account. All data will be permanently deleted after 30 days.
+              </p>
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete My Account
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-red-700 dark:text-red-400 font-medium">Type DELETE to confirm:</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={deleteInput}
+                      onChange={(e) => setDeleteInput(e.target.value)}
+                      placeholder="DELETE"
+                      className="flex-1 px-3 py-2 text-sm border border-red-300 rounded-lg bg-white dark:bg-gray-800 text-red-700 dark:text-red-400"
+                    />
+                    <button
+                      onClick={handleDeleteAccount}
+                      disabled={deleteInput !== "DELETE" || deleting}
+                      className="px-3 py-2 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => { setShowDeleteConfirm(false); setDeleteInput(""); setDeleteError(""); }}
+                      className="px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
+                </div>
+              )}
             </div>
           </div>
         </div>
