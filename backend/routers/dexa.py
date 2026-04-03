@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -5,24 +6,35 @@ from sqlalchemy import desc
 
 from database.engine import get_db
 from database.models import DexaScan
+from dependencies import get_user_id
 from schemas.dexa import DexaScanCreate, DexaScanResponse
 
 router = APIRouter(prefix="/api/dexa", tags=["dexa"])
 
 
 @router.get("/latest", response_model=Optional[DexaScanResponse])
-def get_latest_dexa(db: Session = Depends(get_db)):
-    return db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
+def get_latest_dexa(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    return db.query(DexaScan).filter(DexaScan.user_id == user_id).order_by(desc(DexaScan.scan_date)).first()
 
 
 @router.get("/history", response_model=List[DexaScanResponse])
-def get_dexa_history(db: Session = Depends(get_db)):
-    return db.query(DexaScan).order_by(desc(DexaScan.scan_date)).all()
+def get_dexa_history(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    return db.query(DexaScan).filter(DexaScan.user_id == user_id).order_by(desc(DexaScan.scan_date)).all()
 
 
 @router.post("/scan", response_model=DexaScanResponse)
-def create_dexa_scan(payload: DexaScanCreate, db: Session = Depends(get_db)):
-    scan = DexaScan(**payload.model_dump())
+def create_dexa_scan(
+    payload: DexaScanCreate,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    scan = DexaScan(user_id=user_id, **payload.model_dump())
     db.add(scan)
     db.commit()
     db.refresh(scan)
@@ -34,9 +46,10 @@ def compare_dexa_scans(
     scan_id_a: int,
     scan_id_b: int,
     db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
 ):
-    a = db.query(DexaScan).filter(DexaScan.id == scan_id_a).first()
-    b = db.query(DexaScan).filter(DexaScan.id == scan_id_b).first()
+    a = db.query(DexaScan).filter(DexaScan.id == scan_id_a, DexaScan.user_id == user_id).first()
+    b = db.query(DexaScan).filter(DexaScan.id == scan_id_b, DexaScan.user_id == user_id).first()
     if not a or not b:
         raise HTTPException(status_code=404, detail="Scan not found")
 

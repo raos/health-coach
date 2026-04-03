@@ -1,3 +1,4 @@
+import uuid
 import json
 import os
 from datetime import date, timedelta, datetime
@@ -8,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database.engine import get_db
-from database.models import GarminDailyCache, Vo2MaxLog
+from database.models import DailyHealthCache, GarminDailyCache, Vo2MaxLog
+from dependencies import get_user_id
 from services.garmin_service import garmin_service
 
 router = APIRouter(prefix="/api/garmin", tags=["garmin"])
@@ -16,17 +18,22 @@ router = APIRouter(prefix="/api/garmin", tags=["garmin"])
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
 
-def _upsert_cache(db: Session, **kwargs) -> None:
-    """Insert or update a GarminDailyCache row keyed by date."""
+def _upsert_cache(db: Session, user_id: uuid.UUID, **kwargs) -> None:
+    """Insert or update a DailyHealthCache row keyed by (user_id, date, source)."""
     row_date = kwargs.pop("date")
-    existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == row_date).first()
+    source = kwargs.pop("source", "garmin")
+    existing = db.query(DailyHealthCache).filter(
+        DailyHealthCache.user_id == user_id,
+        DailyHealthCache.date == row_date,
+        DailyHealthCache.source == source,
+    ).first()
     if existing:
         for k, v in kwargs.items():
             if v is not None:
                 setattr(existing, k, v)
         existing.synced_at = datetime.utcnow()
     else:
-        db.add(GarminDailyCache(date=row_date, synced_at=datetime.utcnow(), **kwargs))
+        db.add(DailyHealthCache(user_id=user_id, date=row_date, source=source, synced_at=datetime.utcnow(), **kwargs))
 
 
 def _date_range(days: int) -> list:
@@ -146,17 +153,20 @@ def get_steps(for_date: Optional[date] = None):
 
 
 @router.get("/vo2max")
-def get_vo2max(db: Session = Depends(get_db)):
+def get_vo2max(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     _require_auth()
     try:
         value = garmin_service.get_vo2max()
         if value is not None:
             today = date.today()
-            existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.date == today).first()
+            existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.user_id == user_id, Vo2MaxLog.date == today).first()
             if existing:
                 existing.vo2max = value
             else:
-                db.add(Vo2MaxLog(date=today, vo2max=value, source="garmin"))
+                db.add(Vo2MaxLog(user_id=user_id, date=today, vo2max=value, source="garmin"))
             db.commit()
         return {"vo2max": value}
     except Exception as e:
@@ -188,13 +198,16 @@ def sync_vo2max_history(days: int = 90, db: Session = Depends(get_db)):
 
 
 @router.get("/sleep/range")
-def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
-    # Try live fetch; cache any results that come back
+def get_sleep_range(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     try:
         live = garmin_service.get_sleep_range(days)
         for row in live:
             _upsert_cache(
-                db,
+                db, user_id=user_id,
                 date=date.fromisoformat(row["date"]),
                 sleep_duration_hours=row.get("duration_hours"),
                 sleep_score=row.get("score"),
@@ -204,14 +217,17 @@ def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
             )
         db.commit()
     except Exception:
-        pass  # Fall through to cache
+        pass
 
-    # Serve from cache (covers gaps when live data is unavailable)
     start = date.today() - timedelta(days=days)
     rows = (
-        db.query(GarminDailyCache)
-        .filter(GarminDailyCache.date > start, GarminDailyCache.sleep_duration_hours.isnot(None))
-        .order_by(GarminDailyCache.date)
+        db.query(DailyHealthCache)
+        .filter(
+            DailyHealthCache.user_id == user_id,
+            DailyHealthCache.date > start,
+            DailyHealthCache.sleep_duration_hours.isnot(None),
+        )
+        .order_by(DailyHealthCache.date)
         .all()
     )
     return [
@@ -228,40 +244,56 @@ def get_sleep_range(days: int = 30, db: Session = Depends(get_db)):
 
 
 @router.get("/steps/range")
-def get_steps_range(days: int = 30, db: Session = Depends(get_db)):
+def get_steps_range(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     try:
         live = garmin_service.get_steps_range(days)
         for row in live:
-            _upsert_cache(db, date=date.fromisoformat(row["date"]), steps=row.get("steps"))
+            _upsert_cache(db, user_id=user_id, date=date.fromisoformat(row["date"]), steps=row.get("steps"))
         db.commit()
     except Exception:
         pass
 
     start = date.today() - timedelta(days=days)
     rows = (
-        db.query(GarminDailyCache)
-        .filter(GarminDailyCache.date > start, GarminDailyCache.steps.isnot(None))
-        .order_by(GarminDailyCache.date)
+        db.query(DailyHealthCache)
+        .filter(
+            DailyHealthCache.user_id == user_id,
+            DailyHealthCache.date > start,
+            DailyHealthCache.steps.isnot(None),
+        )
+        .order_by(DailyHealthCache.date)
         .all()
     )
     return [{"date": r.date.isoformat(), "steps": r.steps} for r in rows]
 
 
 @router.get("/resting-hr/range")
-def get_resting_hr_range(days: int = 30, db: Session = Depends(get_db)):
+def get_resting_hr_range(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     try:
         live = garmin_service.get_resting_hr_range(days)
         for row in live:
-            _upsert_cache(db, date=date.fromisoformat(row["date"]), resting_hr=row.get("rhr"))
+            _upsert_cache(db, user_id=user_id, date=date.fromisoformat(row["date"]), resting_hr=row.get("rhr"))
         db.commit()
     except Exception:
         pass
 
     start = date.today() - timedelta(days=days)
     rows = (
-        db.query(GarminDailyCache)
-        .filter(GarminDailyCache.date > start, GarminDailyCache.resting_hr.isnot(None))
-        .order_by(GarminDailyCache.date)
+        db.query(DailyHealthCache)
+        .filter(
+            DailyHealthCache.user_id == user_id,
+            DailyHealthCache.date > start,
+            DailyHealthCache.resting_hr.isnot(None),
+        )
+        .order_by(DailyHealthCache.date)
         .all()
     )
     return [{"date": r.date.isoformat(), "rhr": r.resting_hr} for r in rows]
@@ -363,7 +395,11 @@ class PasteDataRequest(BaseModel):
 
 
 @router.post("/paste-data")
-def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db)):
+def paste_data_from_ui(
+    payload: PasteDataRequest,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     """
     Parse a raw Garmin daily summary JSON (copied from DevTools) and upsert
     into GarminDailyCache. Accepts the usersummary format:
@@ -393,7 +429,11 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
     if steps is None and resting_hr is None and sleep_duration_hours is None:
         raise HTTPException(status_code=400, detail="No usable fields found (totalSteps, restingHeartRate, sleepingSeconds).")
 
-    existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == row_date).first()
+    existing = db.query(DailyHealthCache).filter(
+        DailyHealthCache.user_id == user_id,
+        DailyHealthCache.date == row_date,
+        DailyHealthCache.source == "garmin",
+    ).first()
     if existing:
         if steps is not None:
             existing.steps = int(steps)
@@ -403,8 +443,10 @@ def paste_data_from_ui(payload: PasteDataRequest, db: Session = Depends(get_db))
             existing.sleep_duration_hours = sleep_duration_hours
         existing.synced_at = datetime.utcnow()
     else:
-        db.add(GarminDailyCache(
+        db.add(DailyHealthCache(
+            user_id=user_id,
             date=row_date,
+            source="garmin",
             steps=int(steps) if steps is not None else None,
             resting_hr=int(resting_hr) if resting_hr is not None else None,
             sleep_duration_hours=sleep_duration_hours,
@@ -455,12 +497,29 @@ def push_data(
     This lets a local script push data to the deployed Railway app without the
     backend ever needing to authenticate directly to Garmin.
     """
-    if not settings.mcp_api_key or key != settings.mcp_api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    # Look up user by per-user MCP API key; fall back to global key for backwards compat
+    from database.models import UserProfile as UP
+    profile = db.query(UP).filter(UP.mcp_api_key == key).first()
+    if not profile:
+        if not settings.mcp_api_key or key != settings.mcp_api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        # Global key — default to admin user (backwards compat)
+        from database.models import User
+        admin_user = db.query(User).filter(User.is_admin == True, User.is_active == True).first()
+        push_user_id = admin_user.id if admin_user else None
+    else:
+        push_user_id = profile.user_id
+
+    if not push_user_id:
+        raise HTTPException(status_code=401, detail="Could not identify user from API key")
 
     upserted_daily = 0
     for record in payload.daily:
-        existing = db.query(GarminDailyCache).filter(GarminDailyCache.date == record.date).first()
+        existing = db.query(DailyHealthCache).filter(
+            DailyHealthCache.user_id == push_user_id,
+            DailyHealthCache.date == record.date,
+            DailyHealthCache.source == "garmin",
+        ).first()
         if existing:
             for field in ("sleep_duration_hours", "sleep_score", "deep_min", "rem_min",
                           "light_min", "steps", "resting_hr"):
@@ -469,8 +528,10 @@ def push_data(
                     setattr(existing, field, val)
             existing.synced_at = datetime.utcnow()
         else:
-            db.add(GarminDailyCache(
+            db.add(DailyHealthCache(
+                user_id=push_user_id,
                 date=record.date,
+                source="garmin",
                 sleep_duration_hours=record.sleep_duration_hours,
                 sleep_score=record.sleep_score,
                 deep_min=record.deep_min,
@@ -484,11 +545,14 @@ def push_data(
 
     upserted_vo2 = 0
     for record in payload.vo2max:
-        existing = db.query(Vo2MaxLog).filter(Vo2MaxLog.date == record.date).first()
+        existing = db.query(Vo2MaxLog).filter(
+            Vo2MaxLog.user_id == push_user_id,
+            Vo2MaxLog.date == record.date,
+        ).first()
         if existing:
             existing.vo2max = record.vo2max
         else:
-            db.add(Vo2MaxLog(date=record.date, vo2max=record.vo2max, source="garmin"))
+            db.add(Vo2MaxLog(user_id=push_user_id, date=record.date, vo2max=record.vo2max, source="garmin"))
         upserted_vo2 += 1
 
     db.commit()

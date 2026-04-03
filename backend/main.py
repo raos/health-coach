@@ -31,12 +31,12 @@ def startup_event():
 def _start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
-    from services.weekly_summary_service import send_weekly_summary
+    from services.weekly_summary_service import send_weekly_summary_all_users
     import logging
 
     scheduler = BackgroundScheduler(timezone="America/New_York")
     scheduler.add_job(
-        send_weekly_summary,
+        send_weekly_summary_all_users,
         CronTrigger(day_of_week="sun", hour=19, minute=30, timezone="America/New_York"),
         id="weekly_summary",
         replace_existing=True,
@@ -51,13 +51,25 @@ app.include_router(auth.router)
 
 # Strava OAuth callback is called by Strava's servers — no JWT available
 from fastapi import Query
+from starlette.requests import Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from services.strava_service import StravaService
 
 @app.get("/api/strava/auth/callback", tags=["strava"])
-def strava_auth_callback(code: str = Query(...), db: Session = Depends(get_db)):
-    svc = StravaService(db)
+def strava_auth_callback(
+    code: str = Query(...),
+    state: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    user_id = None
+    if state:
+        try:
+            user_id = _uuid.UUID(state)
+        except ValueError:
+            pass
+    svc = StravaService(db, user_id)
     token_data = svc.exchange_code(code)
     svc.save_tokens(token_data)
     return RedirectResponse(url=f"{settings.frontend_url}/settings")
@@ -95,10 +107,26 @@ def health_check():
 
 
 @app.get("/api/settings/status", dependencies=_auth)
-def settings_status():
+def settings_status(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    from dependencies import get_user_id as _get_uid
+    from database.models import UserProfile as _UP
+    import uuid as _uuid
+    # Try to get per-user MCP key; fall back to global
+    try:
+        token_data = verify_token(request.headers.get("Authorization", "").removeprefix("Bearer "))
+        uid = _uuid.UUID(token_data["user_id"]) if token_data.get("user_id") else None
+        profile = db.query(_UP).filter(_UP.user_id == uid).first() if uid else None
+        mcp_key = (profile.mcp_api_key if profile and profile.mcp_api_key else None) or settings.mcp_api_key
+        hevy_configured = bool((profile.hevy_api_key if profile else None) or settings.hevy_api_key)
+    except Exception:
+        mcp_key = settings.mcp_api_key
+        hevy_configured = bool(settings.hevy_api_key)
     return {
         "garmin": bool(settings.garmin_email and settings.garmin_password),
-        "hevy": bool(settings.hevy_api_key),
+        "hevy": hevy_configured,
         "anthropic": bool(settings.anthropic_api_key),
-        "mcp_api_key": settings.mcp_api_key,
+        "mcp_api_key": mcp_key,
     }

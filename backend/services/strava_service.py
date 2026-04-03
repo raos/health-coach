@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 from typing import Optional
 import httpx
 from sqlalchemy.orm import Session
@@ -14,20 +15,29 @@ STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
 
 
 class StravaService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, user_id: Optional[uuid.UUID] = None):
         self.db = db
+        self.user_id = user_id
+
+    def _token_query(self):
+        q = self.db.query(OAuthToken).filter(OAuthToken.service == "strava")
+        if self.user_id is not None:
+            q = q.filter(OAuthToken.user_id == self.user_id)
+        return q
 
     def is_connected(self) -> bool:
-        token = self.db.query(OAuthToken).filter(OAuthToken.service == "strava").first()
-        return token is not None
+        return self._token_query().first() is not None
 
     def get_auth_url(self) -> str:
+        # Encode user_id in state so callback can associate token with user
+        state = str(self.user_id) if self.user_id else ""
         params = {
             "client_id": settings.strava_client_id,
             "redirect_uri": settings.strava_redirect_uri,
             "response_type": "code",
             "approval_prompt": "auto",
             "scope": "read,activity:read_all",
+            "state": state,
         }
         query = "&".join(f"{k}={v}" for k, v in params.items())
         return f"{STRAVA_AUTH_URL}?{query}"
@@ -45,9 +55,9 @@ class StravaService:
 
     def save_tokens(self, token_data: dict):
         athlete = token_data.get("athlete", {})
-        token = self.db.query(OAuthToken).filter(OAuthToken.service == "strava").first()
+        token = self._token_query().first()
         if not token:
-            token = OAuthToken(service="strava")
+            token = OAuthToken(service="strava", user_id=self.user_id)
             self.db.add(token)
 
         token.access_token = token_data["access_token"]
@@ -57,7 +67,7 @@ class StravaService:
         self.db.commit()
 
     def _refresh_if_needed(self) -> Optional[str]:
-        token = self.db.query(OAuthToken).filter(OAuthToken.service == "strava").first()
+        token = self._token_query().first()
         if not token:
             return None
 
@@ -79,11 +89,10 @@ class StravaService:
         return token.access_token
 
     def get_status(self) -> dict:
-        token = self.db.query(OAuthToken).filter(OAuthToken.service == "strava").first()
+        token = self._token_query().first()
         if not token:
             return {"connected": False}
 
-        # Try to get athlete info
         access_token = self._refresh_if_needed()
         if not access_token:
             return {"connected": False}
@@ -125,18 +134,22 @@ class StravaService:
         from datetime import datetime
         fetched_ids = {a["id"] for a in activities}
 
-        # Delete local activities that are no longer in Strava's latest page.
-        # Only remove within the time window of what we fetched to avoid
-        # deleting older activities that simply weren't included in this page.
+        user_filter = (
+            [StravaActivity.user_id == self.user_id]
+            if self.user_id is not None else []
+        )
+
         if activities:
             dates = [datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")) for a in activities]
             window_start = min(dates)
-            stale = (
+            stale_q = (
                 self.db.query(StravaActivity)
                 .filter(StravaActivity.start_date >= window_start)
                 .filter(StravaActivity.id.notin_(fetched_ids))
-                .all()
             )
+            for f in user_filter:
+                stale_q = stale_q.filter(f)
+            stale = stale_q.all()
             deleted = len(stale)
             for row in stale:
                 self.db.delete(row)
@@ -146,9 +159,11 @@ class StravaService:
         added = updated = 0
         for a in activities:
             start_date = datetime.fromisoformat(a["start_date"].replace("Z", "+00:00"))
-            existing = self.db.query(StravaActivity).filter(StravaActivity.id == a["id"]).first()
+            existing_q = self.db.query(StravaActivity).filter(StravaActivity.id == a["id"])
+            for f in user_filter:
+                existing_q = existing_q.filter(f)
+            existing = existing_q.first()
             if existing:
-                # Update mutable fields (name, kudos, etc. can change on Strava)
                 existing.name = a.get("name", "")
                 existing.activity_type = a.get("type", "")
                 existing.distance_m = a.get("distance")
@@ -164,6 +179,7 @@ class StravaService:
             else:
                 self.db.add(StravaActivity(
                     id=a["id"],
+                    user_id=self.user_id,
                     name=a.get("name", ""),
                     activity_type=a.get("type", ""),
                     start_date=start_date,

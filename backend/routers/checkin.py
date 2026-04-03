@@ -1,5 +1,6 @@
+import uuid
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -7,12 +8,12 @@ from sqlalchemy import desc
 
 from database.engine import get_db
 from database.models import WeeklyCheckin
+from dependencies import get_user_id
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
 
 
 def _monday_of_week(d: date) -> date:
-    """Return the Monday of the week containing d."""
     return d - timedelta(days=d.weekday())
 
 
@@ -32,7 +33,7 @@ def _checkin_dict(c: WeeklyCheckin) -> dict:
 
 
 class CheckinUpsert(BaseModel):
-    week_start: Optional[date] = None   # defaults to current week's Monday
+    week_start: Optional[date] = None
     training_adherence: Optional[int] = None
     energy_level: Optional[int] = None
     sleep_quality: Optional[int] = None
@@ -42,17 +43,23 @@ class CheckinUpsert(BaseModel):
 
 
 @router.post("")
-def upsert_checkin(payload: CheckinUpsert, db: Session = Depends(get_db)):
-    """Create or update the check-in for the given week (defaults to current week)."""
+def upsert_checkin(
+    payload: CheckinUpsert,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     week_start = payload.week_start or _monday_of_week(date.today())
 
-    # Validate 1–5 ranges
     for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level"):
         val = getattr(payload, field)
         if val is not None and not (1 <= val <= 5):
             raise HTTPException(status_code=422, detail=f"{field} must be between 1 and 5")
 
-    existing = db.query(WeeklyCheckin).filter(WeeklyCheckin.week_start == week_start).first()
+    existing = db.query(WeeklyCheckin).filter(
+        WeeklyCheckin.user_id == user_id,
+        WeeklyCheckin.week_start == week_start,
+    ).first()
+
     if existing:
         for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level", "notes"):
             val = getattr(payload, field)
@@ -63,6 +70,7 @@ def upsert_checkin(payload: CheckinUpsert, db: Session = Depends(get_db)):
         return _checkin_dict(existing)
 
     row = WeeklyCheckin(
+        user_id=user_id,
         week_start=week_start,
         training_adherence=payload.training_adherence,
         energy_level=payload.energy_level,
@@ -78,17 +86,23 @@ def upsert_checkin(payload: CheckinUpsert, db: Session = Depends(get_db)):
 
 
 @router.get("/latest")
-def get_latest_checkin(db: Session = Depends(get_db)):
-    row = db.query(WeeklyCheckin).order_by(desc(WeeklyCheckin.week_start)).first()
-    if not row:
-        return None
-    return _checkin_dict(row)
+def get_latest_checkin(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    row = db.query(WeeklyCheckin).filter(WeeklyCheckin.user_id == user_id).order_by(desc(WeeklyCheckin.week_start)).first()
+    return _checkin_dict(row) if row else None
 
 
 @router.get("/history")
-def get_checkin_history(limit: int = 12, db: Session = Depends(get_db)):
+def get_checkin_history(
+    limit: int = 12,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     rows = (
         db.query(WeeklyCheckin)
+        .filter(WeeklyCheckin.user_id == user_id)
         .order_by(desc(WeeklyCheckin.week_start))
         .limit(limit)
         .all()

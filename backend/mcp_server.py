@@ -7,9 +7,11 @@ Routes registered in main.py:
 """
 import asyncio
 import json
+import uuid as _uuid_mod
 from collections import defaultdict
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -17,6 +19,15 @@ from mcp import types
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Scope, Receive, Send
+
+# Context variable to hold the current user_id for the duration of an MCP session.
+# Set in sse_endpoint after validating the MCP API key.
+_current_user_id: ContextVar[Optional[_uuid_mod.UUID]] = ContextVar("_current_user_id", default=None)
+
+
+def _get_user_id() -> Optional[_uuid_mod.UUID]:
+    """Return the user_id for the current MCP session, or None if not set."""
+    return _current_user_id.get()
 
 
 class _AlreadySentResponse(Response):
@@ -349,10 +360,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 async def _log_meal(args: dict[str, Any]) -> list[types.TextContent]:
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
         row = NutritionLog(
+            user_id=user_id,
             date=target_date,
             meal_type=args["meal_type"],
             name=args["name"],
@@ -378,15 +391,14 @@ async def _log_meal(args: dict[str, Any]) -> list[types.TextContent]:
 async def _get_nutrition_log(args: dict[str, Any]) -> list[types.TextContent]:
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        rows = (
-            db.query(NutritionLog)
-            .filter(NutritionLog.date == target_date)
-            .order_by(NutritionLog.logged_at)
-            .all()
-        )
+        q = db.query(NutritionLog).filter(NutritionLog.date == target_date)
+        if user_id is not None:
+            q = q.filter(NutritionLog.user_id == user_id)
+        rows = q.order_by(NutritionLog.logged_at).all()
         if not rows:
             return [types.TextContent(
                 type="text",
@@ -416,10 +428,14 @@ async def _get_nutrition_log(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _generate_meal_plan(args: dict[str, Any]) -> list[types.TextContent]:
     from services import claude_service
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        profile = db.query(UserProfile).first()
+        q_profile = db.query(UserProfile)
+        if user_id is not None:
+            q_profile = q_profile.filter(UserProfile.user_id == user_id)
+        profile = q_profile.first()
         calorie_target = profile.calorie_target if profile and profile.calorie_target else 2200
 
         plan_data = await asyncio.to_thread(
@@ -429,19 +445,24 @@ async def _generate_meal_plan(args: dict[str, Any]) -> list[types.TextContent]:
             _BREAKFAST_PREFS,
             _LUNCH_PREFS,
             _DINNER_PREFS,
+            user_id,
         )
 
         week_start = plan_data.get("week_start", str(date.today()))
         days = plan_data.get("days", [])
 
-        # Persist to DB (deactivate old, save new)
-        db.query(MealPlan).update({"is_active": False})
+        # Persist to DB (deactivate old for this user, save new)
+        q_mp = db.query(MealPlan)
+        if user_id is not None:
+            q_mp = q_mp.filter(MealPlan.user_id == user_id)
+        q_mp.update({"is_active": False})
         try:
             ws = date.fromisoformat(week_start)
         except ValueError:
             ws = date.today()
 
         plan = MealPlan(
+            user_id=user_id,
             week_start=ws,
             plan_json=json.dumps(plan_data),
             calorie_target=plan_data.get("daily_target_kcal", calorie_target),
@@ -457,15 +478,14 @@ async def _generate_meal_plan(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _get_todays_workout(args: dict[str, Any]) -> list[types.TextContent]:
+    user_id = _get_user_id()
     db = SessionLocal()
     try:
         from sqlalchemy import desc as sa_desc
-        plan = (
-            db.query(TrainingPlan)
-            .filter(TrainingPlan.is_active == True)
-            .order_by(sa_desc(TrainingPlan.generated_at))
-            .first()
-        )
+        q = db.query(TrainingPlan).filter(TrainingPlan.is_active == True)
+        if user_id is not None:
+            q = q.filter(TrainingPlan.user_id == user_id)
+        plan = q.order_by(sa_desc(TrainingPlan.generated_at)).first()
         if not plan or not plan.plan_json:
             return [types.TextContent(type="text", text="No active training plan. Generate one from the Coach page.")]
 
@@ -500,15 +520,14 @@ async def _get_todays_workout(args: dict[str, Any]) -> list[types.TextContent]:
 async def _get_recent_workouts(args: dict[str, Any]) -> list[types.TextContent]:
     days = int(args.get("days", 7))
     cutoff = datetime.now() - timedelta(days=days)
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        workouts = (
-            db.query(HevyWorkout)
-            .filter(HevyWorkout.start_time >= cutoff)
-            .order_by(HevyWorkout.start_time.desc())
-            .all()
-        )
+        q = db.query(HevyWorkout).filter(HevyWorkout.start_time >= cutoff)
+        if user_id is not None:
+            q = q.filter(HevyWorkout.user_id == user_id)
+        workouts = q.order_by(HevyWorkout.start_time.desc()).all()
         if not workouts:
             return [types.TextContent(type="text", text=f"No workouts in the last {days} days.")]
 
@@ -540,6 +559,7 @@ async def _get_recent_workouts(args: dict[str, Any]) -> list[types.TextContent]:
 async def _get_exercise_stats(args: dict[str, Any]) -> list[types.TextContent]:
     exercise_name = args["exercise_name"]
     weeks = int(args.get("weeks", 13))
+    user_id = _get_user_id()
 
     today = date.today()
     this_monday = today - timedelta(days=today.weekday())
@@ -548,7 +568,7 @@ async def _get_exercise_stats(args: dict[str, Any]) -> list[types.TextContent]:
 
     db = SessionLocal()
     try:
-        sets = (
+        q = (
             db.query(HevyExerciseSet, HevyWorkout.start_time)
             .join(HevyWorkout, HevyWorkout.id == HevyExerciseSet.workout_id)
             .filter(HevyExerciseSet.exercise_name == exercise_name)
@@ -556,9 +576,10 @@ async def _get_exercise_stats(args: dict[str, Any]) -> list[types.TextContent]:
             .filter(HevyExerciseSet.weight_lbs.isnot(None))
             .filter(HevyExerciseSet.weight_lbs > 0)
             .filter(HevyWorkout.start_time >= cutoff_dt)
-            .order_by(HevyWorkout.start_time)
-            .all()
         )
+        if user_id is not None:
+            q = q.filter(HevyExerciseSet.user_id == user_id)
+        sets = q.order_by(HevyWorkout.start_time).all()
 
         if not sets:
             return [types.TextContent(
@@ -597,6 +618,7 @@ async def _get_exercise_stats(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextContent]:
     from services import claude_service
+    user_id = _get_user_id()
 
     strength_days = int(args.get("strength_days", 4))
     cardio_days = int(args.get("cardio_days", 2))
@@ -610,18 +632,23 @@ async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextConten
             strength_days,
             cardio_days,
             rest_days,
+            user_id,
         )
 
         week_start = plan_data.get("week_start", str(date.today()))
 
-        # Persist to DB
-        db.query(TrainingPlan).update({"is_active": False})
+        # Persist to DB (deactivate old for this user)
+        q_tp = db.query(TrainingPlan)
+        if user_id is not None:
+            q_tp = q_tp.filter(TrainingPlan.user_id == user_id)
+        q_tp.update({"is_active": False})
         try:
             ws = date.fromisoformat(week_start)
         except ValueError:
             ws = date.today()
 
         plan = TrainingPlan(
+            user_id=user_id,
             week_start=ws,
             plan_json=json.dumps(plan_data),
             is_active=True,
@@ -638,15 +665,14 @@ async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextConten
 async def _get_health_metrics(args: dict[str, Any]) -> list[types.TextContent]:
     days = int(args.get("days", 14))
     cutoff = date.today() - timedelta(days=days)
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        rows = (
-            db.query(GarminDailyCache)
-            .filter(GarminDailyCache.date >= cutoff)
-            .order_by(GarminDailyCache.date.desc())
-            .all()
-        )
+        q = db.query(GarminDailyCache).filter(GarminDailyCache.date >= cutoff)
+        if user_id is not None:
+            q = q.filter(GarminDailyCache.user_id == user_id)
+        rows = q.order_by(GarminDailyCache.date.desc()).all()
         if not rows:
             return [types.TextContent(
                 type="text",
@@ -670,23 +696,27 @@ async def _get_health_metrics(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _get_health_summary(args: dict[str, Any]) -> list[types.TextContent]:
+    user_id = _get_user_id()
     db = SessionLocal()
     try:
         from sqlalchemy import desc as sa_desc
 
-        latest_weight = db.query(WeightLog).order_by(sa_desc(WeightLog.date)).first()
-        latest_dexa = db.query(DexaScan).order_by(sa_desc(DexaScan.scan_date)).first()
-        latest_vo2 = db.query(Vo2MaxLog).order_by(sa_desc(Vo2MaxLog.date)).first()
-        profile = db.query(UserProfile).first()
+        def _uid_filter(q, model):
+            if user_id is not None:
+                return q.filter(model.user_id == user_id)
+            return q
 
-        # Last 7 days of Garmin data
+        latest_weight = _uid_filter(db.query(WeightLog), WeightLog).order_by(sa_desc(WeightLog.date)).first()
+        latest_dexa = _uid_filter(db.query(DexaScan), DexaScan).order_by(sa_desc(DexaScan.scan_date)).first()
+        latest_vo2 = _uid_filter(db.query(Vo2MaxLog), Vo2MaxLog).order_by(sa_desc(Vo2MaxLog.date)).first()
+        profile = _uid_filter(db.query(UserProfile), UserProfile).first()
+
+        # Last 7 days of health cache data
         cutoff = date.today() - timedelta(days=7)
-        garmin_rows = (
-            db.query(GarminDailyCache)
-            .filter(GarminDailyCache.date >= cutoff)
-            .order_by(GarminDailyCache.date.desc())
-            .all()
-        )
+        garmin_rows = _uid_filter(
+            db.query(GarminDailyCache).filter(GarminDailyCache.date >= cutoff),
+            GarminDailyCache,
+        ).order_by(GarminDailyCache.date.desc()).all()
 
         lines = ["Health Summary", "=" * 40, ""]
 
@@ -741,14 +771,14 @@ async def _get_health_summary(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _get_health_recommendations(args: dict[str, Any]) -> list[types.TextContent]:
+    user_id = _get_user_id()
     db = SessionLocal()
     try:
         from sqlalchemy import desc as sa_desc
-        insight = (
-            db.query(HealthInsight)
-            .order_by(sa_desc(HealthInsight.generated_at))
-            .first()
-        )
+        q = db.query(HealthInsight)
+        if user_id is not None:
+            q = q.filter(HealthInsight.user_id == user_id)
+        insight = q.order_by(sa_desc(HealthInsight.generated_at)).first()
         if not insight:
             text = "No health insights generated yet. Open the app and generate insights from the Health Advisor page."
         else:
@@ -762,17 +792,21 @@ async def _log_weight(args: dict[str, Any]) -> list[types.TextContent]:
     weight_lbs = float(args["weight_lbs"])
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        existing = db.query(WeightLog).filter(WeightLog.date == target_date).first()
+        q = db.query(WeightLog).filter(WeightLog.date == target_date)
+        if user_id is not None:
+            q = q.filter(WeightLog.user_id == user_id)
+        existing = q.first()
         if existing:
             old_weight = existing.weight_lbs
             existing.weight_lbs = weight_lbs
             db.commit()
             text = f"Updated weight for {target_date.isoformat()}: {old_weight} lbs → {weight_lbs} lbs"
         else:
-            row = WeightLog(date=target_date, weight_lbs=weight_lbs, source="mcp")
+            row = WeightLog(user_id=user_id, date=target_date, weight_lbs=weight_lbs, source="mcp")
             db.add(row)
             db.commit()
             text = f"Logged weight: {weight_lbs} lbs on {target_date.isoformat()}"
@@ -783,13 +817,14 @@ async def _log_weight(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
     results = {"strava": "skipped", "hevy": "skipped"}
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
         # Strava sync
         try:
             from services.strava_service import StravaService
-            svc = StravaService(db)
+            svc = StravaService(db, user_id)
             if svc.is_connected():
                 r = await asyncio.to_thread(svc.sync_activities)
                 results["strava"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"
@@ -799,8 +834,10 @@ async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
         # Hevy sync
         try:
             import services.hevy_service as hevy_svc
-            if hevy_svc.is_configured():
-                r = await asyncio.to_thread(hevy_svc.sync_workouts, db)
+            profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first() if user_id else None
+            api_key = (profile.hevy_api_key if profile else None) or settings.hevy_api_key
+            if api_key:
+                r = await asyncio.to_thread(hevy_svc.sync_workouts, db, user_id, api_key)
                 results["hevy"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"
         except Exception as e:
             results["hevy"] = f"error: {str(e)}"
@@ -813,18 +850,16 @@ async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _get_meal_plan_for_day(args: dict[str, Any]) -> list[types.TextContent]:
     day_name = args.get("day") or datetime.today().strftime("%A")
-    # Normalise to title case so "monday" and "MONDAY" both work
     day_name = day_name.strip().title()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
         from sqlalchemy import desc as sa_desc
-        plan = (
-            db.query(MealPlan)
-            .filter(MealPlan.is_active == True)
-            .order_by(sa_desc(MealPlan.generated_at))
-            .first()
-        )
+        q = db.query(MealPlan).filter(MealPlan.is_active == True)
+        if user_id is not None:
+            q = q.filter(MealPlan.user_id == user_id)
+        plan = q.order_by(sa_desc(MealPlan.generated_at)).first()
         if not plan or not plan.plan_json:
             return [types.TextContent(type="text", text="No active meal plan. Generate one from the Nutrition page.")]
 
@@ -883,20 +918,21 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
 
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        # Find existing active supplement (case-insensitive)
-        supplement = db.query(Supplement).filter(
-            Supplement.is_active == True,
-        ).all()
+        # Find existing active supplement (case-insensitive, scoped to user)
+        q_supp = db.query(Supplement).filter(Supplement.is_active == True)
+        if user_id is not None:
+            q_supp = q_supp.filter(Supplement.user_id == user_id)
+        supplements = q_supp.all()
         match = next(
-            (s for s in supplement if s.name.lower() == supplement_name.lower()), None
+            (s for s in supplements if s.name.lower() == supplement_name.lower()), None
         )
 
         if not match:
-            # Create it so future logs work too
-            match = Supplement(name=supplement_name)
+            match = Supplement(user_id=user_id, name=supplement_name)
             db.add(match)
             db.commit()
             db.refresh(match)
@@ -904,11 +940,13 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
         else:
             created = False
 
-        # Idempotent — don't duplicate
-        existing = db.query(SupplementLog).filter(
+        q_existing = db.query(SupplementLog).filter(
             SupplementLog.supplement_id == match.id,
             SupplementLog.date == target_date,
-        ).first()
+        )
+        if user_id is not None:
+            q_existing = q_existing.filter(SupplementLog.user_id == user_id)
+        existing = q_existing.first()
 
         if existing:
             return [types.TextContent(
@@ -916,7 +954,7 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
                 text=f"✓ {match.name} was already logged for {target_date}.",
             )]
 
-        log = SupplementLog(supplement_id=match.id, date=target_date)
+        log = SupplementLog(user_id=user_id, supplement_id=match.id, date=target_date)
         db.add(log)
         db.commit()
 
@@ -933,14 +971,19 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
 async def _get_supplement_log(args: dict[str, Any]) -> list[types.TextContent]:
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        all_supplements = db.query(Supplement).filter(Supplement.is_active == True).all()
-        taken_ids = {
-            log.supplement_id
-            for log in db.query(SupplementLog).filter(SupplementLog.date == target_date).all()
-        }
+        q_supp = db.query(Supplement).filter(Supplement.is_active == True)
+        if user_id is not None:
+            q_supp = q_supp.filter(Supplement.user_id == user_id)
+        all_supplements = q_supp.all()
+
+        q_log = db.query(SupplementLog).filter(SupplementLog.date == target_date)
+        if user_id is not None:
+            q_log = q_log.filter(SupplementLog.user_id == user_id)
+        taken_ids = {log.supplement_id for log in q_log.all()}
 
         if not all_supplements:
             return [types.TextContent(type="text", text="No supplements configured yet.")]
@@ -971,6 +1014,7 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
         return d - timedelta(days=d.weekday())
 
     week_start = _monday(date.today())
+    user_id = _get_user_id()
     db = SessionLocal()
     try:
         # Validate ratings
@@ -979,7 +1023,10 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
             if val is not None and not (1 <= int(val) <= 5):
                 return [types.TextContent(type="text", text=f"Error: {field} must be between 1 and 5.")]
 
-        existing = db.query(WeeklyCheckin).filter(WeeklyCheckin.week_start == week_start).first()
+        q = db.query(WeeklyCheckin).filter(WeeklyCheckin.week_start == week_start)
+        if user_id is not None:
+            q = q.filter(WeeklyCheckin.user_id == user_id)
+        existing = q.first()
         if existing:
             for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level", "notes"):
                 val = args.get(field)
@@ -990,6 +1037,7 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
             row = existing
         else:
             row = WeeklyCheckin(
+                user_id=user_id,
                 week_start=week_start,
                 training_adherence=args.get("training_adherence"),
                 energy_level=args.get("energy_level"),
@@ -1024,17 +1072,40 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
 # ── ASGI endpoint handlers ────────────────────────────────────────────────────
 
 async def sse_endpoint(request: Request):
-    """SSE handshake — validates MCP_API_KEY query param, then starts MCP session."""
+    """SSE handshake — validates per-user or global MCP_API_KEY, then starts MCP session."""
     key = request.query_params.get("key", "")
-    if not settings.mcp_api_key or key != settings.mcp_api_key:
+    if not key:
         return Response("Unauthorized", status_code=401)
 
-    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-        await server.run(
-            streams[0],
-            streams[1],
-            server.create_initialization_options(),
-        )
+    # Resolve user_id from the provided key.
+    # First try per-user key in UserProfile, then fall back to global key.
+    user_id: Optional[_uuid_mod.UUID] = None
+    db = SessionLocal()
+    try:
+        from database.models import UserProfile as _UP
+        profile = db.query(_UP).filter(_UP.mcp_api_key == key).first()
+        if profile:
+            user_id = profile.user_id
+        elif settings.mcp_api_key and key == settings.mcp_api_key:
+            # Global key — look up admin user as fallback
+            from database.models import User as _User
+            admin = db.query(_User).filter(_User.is_admin == True).first()
+            user_id = admin.id if admin else None
+        else:
+            return Response("Unauthorized", status_code=401)
+    finally:
+        db.close()
+
+    token = _current_user_id.set(user_id)
+    try:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(
+                streams[0],
+                streams[1],
+                server.create_initialization_options(),
+            )
+    finally:
+        _current_user_id.reset(token)
     return _AlreadySentResponse()
 
 

@@ -48,11 +48,21 @@ def _get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
-def _build_current_stats(db: Session) -> str:
-    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
-    latest_weight = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
-    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
-    profile = db.query(UserProfile).first()
+def _build_current_stats(db: Session, user_id=None) -> str:
+    q_dexa = db.query(DexaScan)
+    q_weight = db.query(WeightLog)
+    q_vo2 = db.query(Vo2MaxLog)
+    q_profile = db.query(UserProfile)
+    if user_id is not None:
+        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_weight = q_weight.filter(WeightLog.user_id == user_id)
+        q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+
+    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_weight = q_weight.order_by(desc(WeightLog.date)).first()
+    latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
+    profile = q_profile.first()
 
     bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
     lean = latest_dexa.lean_mass_lbs if latest_dexa else 123.9
@@ -60,32 +70,35 @@ def _build_current_stats(db: Session) -> str:
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
     dexa_date = str(latest_dexa.scan_date) if latest_dexa else "2026-03-13"
 
+    device = profile.training_device if profile and profile.training_device else "tonal"
+    device_label = {"gym": "gym equipment", "bodyweight": "bodyweight only"}.get(device, "Tonal (cable-based)")
+
     return f"""- Weight: {weight} lbs (as of {str(latest_weight.date) if latest_weight else "unknown"})
 - Body fat: {bf}% (DEXA as of {dexa_date})
 - Lean mass: {lean} lbs
 - VO2 Max: {vo2} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else "2026-12-31"})
 - Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else "2026-12-31"}
-- Age: 46, training exclusively on Tonal (cable-based)"""
+- Training equipment: {device_label}"""
 
 
-def _build_recent_training(db: Session) -> str:
+def _build_recent_training(db: Session, user_id=None) -> str:
     cutoff = date.today() - timedelta(days=14)
 
-    strava = (
+    q_strava = (
         db.query(StravaActivity)
         .filter(StravaActivity.start_date >= cutoff.isoformat())
         .filter(StravaActivity.activity_type.notin_(["Workout", "WeightTraining"]))
-        .order_by(desc(StravaActivity.start_date))
-        .limit(10)
-        .all()
     )
-    hevy = (
+    q_hevy = (
         db.query(HevyWorkout)
         .filter(HevyWorkout.start_time >= cutoff.isoformat())
-        .order_by(desc(HevyWorkout.start_time))
-        .limit(10)
-        .all()
     )
+    if user_id is not None:
+        q_strava = q_strava.filter(StravaActivity.user_id == user_id)
+        q_hevy = q_hevy.filter(HevyWorkout.user_id == user_id)
+
+    strava = q_strava.order_by(desc(StravaActivity.start_date)).limit(10).all()
+    hevy = q_hevy.order_by(desc(HevyWorkout.start_time)).limit(10).all()
 
     lines = []
     for a in strava:
@@ -101,10 +114,11 @@ def _build_recent_training(db: Session) -> str:
     return "\n".join(lines)
 
 
-def build_context_hash(db: Session) -> str:
-    stats = _build_current_stats(db)
-    training = _build_recent_training(db)
-    return hashlib.md5(f"{stats}{training}".encode()).hexdigest()
+def build_context_hash(db: Session, user_id=None) -> str:
+    stats = _build_current_stats(db, user_id)
+    training = _build_recent_training(db, user_id)
+    uid_prefix = str(user_id)[:8] + "_" if user_id else ""
+    return hashlib.md5(f"{uid_prefix}{stats}{training}".encode()).hexdigest()
 
 
 def _build_weekly_schedule(strength_days: int, cardio_days: int, rest_days: int) -> list[dict]:
@@ -177,11 +191,15 @@ def generate_training_plan(
     strength_days: int = 4,
     cardio_days: int = 2,
     rest_days: int = 1,
+    user_id=None,
 ) -> dict:
     client = _get_client()
-    current_stats = _build_current_stats(db)
-    recent_training = _build_recent_training(db)
-    profile = db.query(UserProfile).first()
+    current_stats = _build_current_stats(db, user_id)
+    recent_training = _build_recent_training(db, user_id)
+    q_profile = db.query(UserProfile)
+    if user_id is not None:
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+    profile = q_profile.first()
     training_device = (profile.training_device if profile and profile.training_device else "tonal")
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
 
@@ -439,10 +457,16 @@ def generate_meal_plan(
     breakfast_prefs: Optional[str] = None,
     lunch_prefs: Optional[str] = None,
     dinner_prefs: Optional[str] = None,
+    user_id=None,
 ) -> dict:
     client = _get_client()
-    profile = db.query(UserProfile).first()
-    latest_weight_entry = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
+    q_profile = db.query(UserProfile)
+    q_weight = db.query(WeightLog)
+    if user_id is not None:
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+        q_weight = q_weight.filter(WeightLog.user_id == user_id)
+    profile = q_profile.first()
+    latest_weight_entry = q_weight.order_by(desc(WeightLog.date)).first()
 
     weight = latest_weight_entry.weight_lbs if latest_weight_entry else 181.5
     calorie_target = calorie_target or (profile.calorie_target if profile else 2200)
@@ -492,16 +516,21 @@ def generate_meal_plan(
     days_to_monday = (7 - today.weekday()) % 7 or 7
     next_monday = today + timedelta(days=days_to_monday)
 
+    # Build dietary descriptor from user profile
+    dietary_pref = (profile.dietary_preference if profile and profile.dietary_preference else "vegetarian")
+    cuisines = (profile.preferred_cuisines if profile and profile.preferred_cuisines else "South Indian")
+    diet_desc = f"{cuisines} {dietary_pref}"
+
     # Split into two calls to stay within token limits:
     # Call 1: Monday–Thursday (meals only)
     # Call 2: Friday–Sunday + shopping list + weekly notes
-    prompt_a = f"""Generate a South Indian vegetarian meal plan for Monday, Tuesday, Wednesday, Thursday of the week starting {next_monday}.
+    prompt_a = f"""Generate a {diet_desc} meal plan for Monday, Tuesday, Wednesday, Thursday of the week starting {next_monday}.
 Return JSON with exactly two keys: "week_start" (string "{next_monday}") and "days" (array of 4 day objects).
 No shopping list. Pure JSON only, no markdown."""
 
-    prompt_b = f"""Generate a South Indian vegetarian meal plan for Friday, Saturday, Sunday of the week starting {next_monday}.
+    prompt_b = f"""Generate a {diet_desc} meal plan for Friday, Saturday, Sunday of the week starting {next_monday}.
 Return JSON with exactly these keys: "daily_target_kcal" ({calorie_target}), "days" (array of 3 day objects for Fri/Sat/Sun), "shopping_list", "weekly_notes".
-The shopping_list should cover ingredients for a full week of South Indian vegetarian meals.
+The shopping_list should cover ingredients for a full week of {diet_desc} meals.
 Pure JSON only, no markdown."""
 
     part_a = _call_claude_json(client, system, prompt_a)
@@ -517,21 +546,28 @@ Pure JSON only, no markdown."""
     }
 
 
-def generate_health_insights(db: Session) -> str:
+def generate_health_insights(db: Session, user_id=None) -> str:
     client = _get_client()
-    profile = db.query(UserProfile).first()
-    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
-    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
-    latest_weight = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
+    q_profile = db.query(UserProfile)
+    q_dexa = db.query(DexaScan)
+    q_vo2 = db.query(Vo2MaxLog)
+    q_weight = db.query(WeightLog)
+    if user_id is not None:
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
+        q_weight = q_weight.filter(WeightLog.user_id == user_id)
+    profile = q_profile.first()
+    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
+    latest_weight = q_weight.order_by(desc(WeightLog.date)).first()
 
     # Weight trend (last 30 days)
     cutoff = date.today() - timedelta(days=30)
-    weight_history = (
-        db.query(WeightLog)
-        .filter(WeightLog.date >= cutoff)
-        .order_by(WeightLog.date)
-        .all()
-    )
+    weight_history_q = db.query(WeightLog).filter(WeightLog.date >= cutoff)
+    if user_id is not None:
+        weight_history_q = weight_history_q.filter(WeightLog.user_id == user_id)
+    weight_history = weight_history_q.order_by(WeightLog.date).all()
 
     weight_trend_str = "No weight data logged yet."
     if weight_history:
@@ -639,12 +675,13 @@ def generate_health_insights(db: Session) -> str:
     if garmin_source == "none":
         try:
             cache_cutoff = date.today() - timedelta(days=30)
-            cache_rows = (
+            cache_q = (
                 db.query(GarminDailyCache)
                 .filter(GarminDailyCache.date >= cache_cutoff)
-                .order_by(GarminDailyCache.date)
-                .all()
             )
+            if user_id is not None:
+                cache_q = cache_q.filter(GarminDailyCache.user_id == user_id)
+            cache_rows = cache_q.order_by(GarminDailyCache.date).all()
             if cache_rows:
                 sleep_range = [
                     {"date": r.date.isoformat(), "duration_hours": r.sleep_duration_hours,
@@ -672,12 +709,10 @@ def generate_health_insights(db: Session) -> str:
     food_log_str = "Food log: No meals logged yet."
     try:
         food_cutoff = date.today() - timedelta(days=14)
-        food_logs = (
-            db.query(NutritionLog)
-            .filter(NutritionLog.date >= food_cutoff)
-            .order_by(NutritionLog.date)
-            .all()
-        )
+        food_q = db.query(NutritionLog).filter(NutritionLog.date >= food_cutoff)
+        if user_id is not None:
+            food_q = food_q.filter(NutritionLog.user_id == user_id)
+        food_logs = food_q.order_by(NutritionLog.date).all()
         if food_logs:
             from collections import defaultdict
             daily: dict = defaultdict(lambda: {"kcal": 0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0, "meals": 0})
@@ -708,14 +743,16 @@ def generate_health_insights(db: Session) -> str:
     # ── Supplement log (last 7 days) ──────────────────────────────────────────
     supplement_str = "Supplements: None configured yet."
     try:
-        active_supps = db.query(Supplement).filter(Supplement.is_active == True).all()
+        supp_q = db.query(Supplement).filter(Supplement.is_active == True)
+        if user_id is not None:
+            supp_q = supp_q.filter(Supplement.user_id == user_id)
+        active_supps = supp_q.all()
         if active_supps:
             supp_cutoff = date.today() - timedelta(days=7)
-            supp_logs = (
-                db.query(SupplementLog)
-                .filter(SupplementLog.date >= supp_cutoff)
-                .all()
-            )
+            supp_log_q = db.query(SupplementLog).filter(SupplementLog.date >= supp_cutoff)
+            if user_id is not None:
+                supp_log_q = supp_log_q.filter(SupplementLog.user_id == user_id)
+            supp_logs = supp_log_q.all()
             lines = []
             for s in active_supps:
                 taken_days = sum(1 for l in supp_logs if l.supplement_id == s.id)
@@ -732,12 +769,10 @@ def generate_health_insights(db: Session) -> str:
     workout_str = "Workouts: No workout data available yet."
     try:
         workout_cutoff = date.today() - timedelta(days=14)
-        recent_workouts = (
-            db.query(HevyWorkout)
-            .filter(HevyWorkout.start_time >= workout_cutoff)
-            .order_by(HevyWorkout.start_time)
-            .all()
-        )
+        workout_q = db.query(HevyWorkout).filter(HevyWorkout.start_time >= workout_cutoff)
+        if user_id is not None:
+            workout_q = workout_q.filter(HevyWorkout.user_id == user_id)
+        recent_workouts = workout_q.order_by(HevyWorkout.start_time).all()
         if recent_workouts:
             workout_lines = []
             for w in recent_workouts:
@@ -758,7 +793,10 @@ def generate_health_insights(db: Session) -> str:
     # ── Weekly check-in ────────────────────────────────────────────────────────
     checkin_str = "Weekly check-in: None submitted yet."
     try:
-        latest_checkin = db.query(WeeklyCheckin).order_by(desc(WeeklyCheckin.week_start)).first()
+        checkin_q = db.query(WeeklyCheckin)
+        if user_id is not None:
+            checkin_q = checkin_q.filter(WeeklyCheckin.user_id == user_id)
+        latest_checkin = checkin_q.order_by(desc(WeeklyCheckin.week_start)).first()
         if latest_checkin:
             checkin_str = _format_checkin(latest_checkin)
     except Exception:
@@ -890,10 +928,11 @@ def _get_hevy_client():
     return _hevy_client_instance
 
 
-def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None) -> str:
+def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None, user_id=None, hevy_api_key: str = None) -> str:
     try:
         from config import settings as cfg
-        if not cfg.hevy_api_key:
+        effective_key = hevy_api_key or cfg.hevy_api_key
+        if not effective_key:
             return json.dumps({"error": "HEVY_API_KEY not configured"})
 
         # get_workouts reads from the local DB (populated by Dashboard sync) so the
@@ -903,6 +942,8 @@ def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None) -> str
             from datetime import datetime as _dt
             limit = tool_input.get("limit", 20)
             q = db.query(HevyWorkout)
+            if user_id is not None:
+                q = q.filter(HevyWorkout.user_id == user_id)
             if tool_input.get("start_date"):
                 q = q.filter(HevyWorkout.start_time >= _dt.fromisoformat(tool_input["start_date"]))
             if tool_input.get("end_date"):
@@ -933,7 +974,8 @@ def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None) -> str
                 })
             return json.dumps(result)
 
-        c = _get_hevy_client()
+        from services.hevy_api_client import HevyAPIClient
+        c = HevyAPIClient(effective_key)
         tool_map = {
             "get_exercises": lambda: c.get_exercises(
                 search_term=tool_input.get("search_term"),
@@ -957,13 +999,15 @@ def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None) -> str
         return json.dumps({"error": str(e)})
 
 
-def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
+def _call_strava_tool(tool_name: str, tool_input: dict, db: Session, user_id=None) -> str:
     try:
         from database.models import StravaActivity
         from datetime import datetime, timezone
         q = db.query(StravaActivity).filter(
             StravaActivity.activity_type.notin_(["Workout", "WeightTraining"])
         )
+        if user_id is not None:
+            q = q.filter(StravaActivity.user_id == user_id)
         if tool_input.get("activity_type"):
             q = q.filter(StravaActivity.activity_type == tool_input["activity_type"])
         if tool_input.get("start_date"):
@@ -999,25 +1043,36 @@ def _call_strava_tool(tool_name: str, tool_input: dict, db: Session) -> str:
         return json.dumps({"error": str(e)})
 
 
-def chat_with_coach(message: str, history: list, db: Session) -> str:
+def chat_with_coach(message: str, history: list, db: Session, user_id=None) -> str:
     client = _get_client()
-    latest_dexa = db.query(DexaScan).order_by(desc(DexaScan.scan_date)).first()
-    latest_vo2 = db.query(Vo2MaxLog).order_by(desc(Vo2MaxLog.date)).first()
-    profile = db.query(UserProfile).first()
-    active_plan = db.query(TrainingPlan).filter(TrainingPlan.is_active == True).order_by(desc(TrainingPlan.generated_at)).first()
+    q_dexa = db.query(DexaScan)
+    q_vo2 = db.query(Vo2MaxLog)
+    q_profile = db.query(UserProfile)
+    q_plan = db.query(TrainingPlan).filter(TrainingPlan.is_active == True)
+    if user_id is not None:
+        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+        q_plan = q_plan.filter(TrainingPlan.user_id == user_id)
+    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
+    profile = q_profile.first()
+    active_plan = q_plan.order_by(desc(TrainingPlan.generated_at)).first()
 
     bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
     training_device = (profile.training_device if profile and profile.training_device else "tonal")
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
 
+    # Per-user hevy key, fall back to global config
     from config import settings as cfg
+    hevy_api_key = (profile.hevy_api_key if profile and profile.hevy_api_key else None) or cfg.hevy_api_key
     hevy_note = (
         "You have access to two training data sources — use the right one for each type:\n"
         "- **Hevy tools**: ALL strength/weight training (Tonal workouts). Use for lifting volume, exercise progress, PRs.\n"
         "- **Strava tool**: CARDIO ONLY (runs, walks, rides). Strength workouts are excluded from Strava results to avoid double-counting.\n"
         "Never count the same workout from both sources."
-        if cfg.hevy_api_key
+        if hevy_api_key
         else "Hevy is not configured. You have access to Strava tools for cardio data."
     )
 
@@ -1044,7 +1099,10 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
 
     checkin_section = ""
     try:
-        latest_checkin = db.query(WeeklyCheckin).order_by(desc(WeeklyCheckin.week_start)).first()
+        checkin_q = db.query(WeeklyCheckin)
+        if user_id is not None:
+            checkin_q = checkin_q.filter(WeeklyCheckin.user_id == user_id)
+        latest_checkin = checkin_q.order_by(desc(WeeklyCheckin.week_start)).first()
         if latest_checkin:
             checkin_section = f"\n\n## Latest Weekly Check-In\n{_format_checkin(latest_checkin)}"
     except Exception:
@@ -1060,7 +1118,7 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         + f"\n\n## Units\n{measurement_note}"
     )
     messages = history[-20:] + [{"role": "user", "content": message}]
-    tools = _STRAVA_TOOLS + (_HEVY_TOOLS if cfg.hevy_api_key else [])
+    tools = _STRAVA_TOOLS + (_HEVY_TOOLS if hevy_api_key else [])
 
     _strava_tool_names = {t["name"] for t in _STRAVA_TOOLS}
 
@@ -1087,9 +1145,9 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
         for block in response.content:
             if block.type == "tool_use":
                 if block.name in _strava_tool_names:
-                    result_str = _call_strava_tool(block.name, block.input, db)
+                    result_str = _call_strava_tool(block.name, block.input, db, user_id)
                 else:
-                    result_str = _call_hevy_tool(block.name, block.input, db)
+                    result_str = _call_hevy_tool(block.name, block.input, db, user_id, hevy_api_key)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -1113,17 +1171,23 @@ def chat_with_coach(message: str, history: list, db: Session) -> str:
     return ""
 
 
-def chat_with_nutritionist(message: str, history: list, db: Session) -> str:
+def chat_with_nutritionist(message: str, history: list, db: Session, user_id=None) -> str:
     client = _get_client()
     from datetime import date as _date
 
-    profile = db.query(UserProfile).first()
+    q_profile = db.query(UserProfile)
+    if user_id is not None:
+        q_profile = q_profile.filter(UserProfile.user_id == user_id)
+    profile = q_profile.first()
     calorie_target = (profile.calorie_target if profile and profile.calorie_target else 2200)
 
     # Today's food log
     today = _date.today()
+    log_q = db.query(NutritionLog)
+    if user_id is not None:
+        log_q = log_q.filter(NutritionLog.user_id == user_id)
     log_rows = (
-        db.query(NutritionLog)
+        log_q
         .filter(NutritionLog.date == today)
         .order_by(NutritionLog.logged_at)
         .all()
@@ -1143,7 +1207,10 @@ def chat_with_nutritionist(message: str, history: list, db: Session) -> str:
         food_log_section = f"Nothing logged yet today ({today.strftime('%A, %b %d')})."
 
     # Active meal plan — summarise each day briefly
-    active_plan = db.query(MealPlan).filter(MealPlan.is_active == True).order_by(desc(MealPlan.generated_at)).first()
+    plan_q = db.query(MealPlan).filter(MealPlan.is_active == True)
+    if user_id is not None:
+        plan_q = plan_q.filter(MealPlan.user_id == user_id)
+    active_plan = plan_q.order_by(desc(MealPlan.generated_at)).first()
     if active_plan:
         try:
             plan_data = json.loads(active_plan.plan_json)

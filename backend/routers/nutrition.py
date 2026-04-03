@@ -1,12 +1,14 @@
+import uuid
 import json
-from datetime import date, timedelta
+from datetime import date as date_type, datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import MealPlan, UserProfile, CoachConversation
+from database.models import MealPlan, UserProfile, CoachConversation, NutritionLog
+from dependencies import get_user_id
 from pydantic import BaseModel
 from schemas.nutrition import MealPlanResponse, RegenerateDayRequest, GenerateMealPlanRequest
 from services import claude_service
@@ -15,25 +17,36 @@ router = APIRouter(prefix="/api/nutrition", tags=["nutrition"])
 
 
 @router.get("/meal-plan/latest", response_model=Optional[MealPlanResponse])
-def get_latest_meal_plan(db: Session = Depends(get_db)):
-    plan = db.query(MealPlan).filter(MealPlan.is_active == True).order_by(desc(MealPlan.generated_at)).first()
-    return plan
+def get_latest_meal_plan(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    return (
+        db.query(MealPlan)
+        .filter(MealPlan.user_id == user_id, MealPlan.is_active == True)
+        .order_by(desc(MealPlan.generated_at))
+        .first()
+    )
 
 
 @router.post("/meal-plan", response_model=MealPlanResponse)
-def generate_meal_plan(payload: GenerateMealPlanRequest = GenerateMealPlanRequest(), db: Session = Depends(get_db)):
+def generate_meal_plan(
+    payload: GenerateMealPlanRequest = GenerateMealPlanRequest(),
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     if not __import__("config").settings.anthropic_api_key:
-        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured. Add it to your .env file.")
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
 
-    # If calorie_target not provided (None or 0), fall back to profile value
     calorie_target = payload.calorie_target
     if not calorie_target:
-        profile = db.query(UserProfile).first()
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
         calorie_target = profile.calorie_target if profile and profile.calorie_target else None
 
     try:
         plan_data = claude_service.generate_meal_plan(
             db,
+            user_id=user_id,
             calorie_target=calorie_target,
             breakfast_prefs=payload.breakfast_prefs,
             lunch_prefs=payload.lunch_prefs,
@@ -41,18 +54,19 @@ def generate_meal_plan(payload: GenerateMealPlanRequest = GenerateMealPlanReques
         )
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
-    week_start_str = plan_data.get("week_start", str(date.today()))
+
+    week_start_str = plan_data.get("week_start", str(date_type.today()))
     try:
-        week_start = date.fromisoformat(week_start_str)
+        week_start = date_type.fromisoformat(week_start_str)
     except ValueError:
-        week_start = date.today()
+        week_start = date_type.today()
 
-    calorie_target = plan_data.get("daily_target_kcal", 2200)
+    calorie_target = plan_data.get("daily_target_kcal", 2000)
 
-    # Deactivate old plans
-    db.query(MealPlan).update({"is_active": False})
+    db.query(MealPlan).filter(MealPlan.user_id == user_id).update({"is_active": False})
 
     plan = MealPlan(
+        user_id=user_id,
         week_start=week_start,
         plan_json=json.dumps(plan_data),
         calorie_target=calorie_target,
@@ -65,21 +79,21 @@ def generate_meal_plan(payload: GenerateMealPlanRequest = GenerateMealPlanReques
 
 
 @router.post("/meal-plan/regenerate-day", response_model=MealPlanResponse)
-def regenerate_day(payload: RegenerateDayRequest, db: Session = Depends(get_db)):
+def regenerate_day(
+    payload: RegenerateDayRequest,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     if not __import__("config").settings.anthropic_api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
 
-    plan = db.query(MealPlan).filter(MealPlan.id == payload.plan_id).first()
+    plan = db.query(MealPlan).filter(MealPlan.id == payload.plan_id, MealPlan.user_id == user_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Meal plan not found")
 
     current_data = json.loads(plan.plan_json)
+    new_data = claude_service.generate_meal_plan(db, user_id=user_id)
 
-    # Re-generate just the requested day
-    from services.claude_service import generate_meal_plan as gen_full
-    new_data = gen_full(db)
-
-    # Swap the day
     day_map = {d["day"]: d for d in new_data.get("days", [])}
     existing_days = current_data.get("days", [])
     for i, day in enumerate(existing_days):
@@ -99,8 +113,11 @@ class ShoppingListEmailRequest(BaseModel):
 
 
 @router.post("/email-shopping-list")
-def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends(get_db)):
-    """Email checked shopping list items to Sandeep and Preetha."""
+def email_shopping_list(
+    payload: ShoppingListEmailRequest,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     if not payload.items:
         raise HTTPException(status_code=400, detail="No items provided.")
     try:
@@ -116,14 +133,16 @@ def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends
 
         body = "\n".join(lines)
 
-        profile = db.query(UserProfile).first()
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
         to_address = (profile.email or "").strip() if profile else ""
+        cc_address = (profile.weekly_email_cc or "").strip() if profile else ""
         send_plan_email(
             to_address=to_address,
             subject="Grocery Shopping List",
             body_text=body,
             pdf_bytes=None,
             pdf_filename=None,
+            cc_address=cc_address or None,
         )
         return {"status": "sent", "sent_to": to_address}
     except RuntimeError as e:
@@ -134,16 +153,17 @@ def email_shopping_list(payload: ShoppingListEmailRequest, db: Session = Depends
 
 class LogMealRequest(BaseModel):
     description: str
-    date: Optional[str] = None  # ISO date, defaults to today
+    date: Optional[str] = None
 
 
 @router.post("/log")
-def log_meal_from_description(payload: LogMealRequest, db: Session = Depends(get_db)):
-    """Parse a natural-language meal description with Claude and save to food log."""
+def log_meal_from_description(
+    payload: LogMealRequest,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     if not __import__("config").settings.anthropic_api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
-    from database.models import NutritionLog as NutritionLogModel
-    from datetime import date as date_type, datetime
 
     try:
         parsed = claude_service.parse_meal_description(payload.description)
@@ -152,7 +172,8 @@ def log_meal_from_description(payload: LogMealRequest, db: Session = Depends(get
 
     target_date = date_type.fromisoformat(payload.date) if payload.date else date_type.today()
 
-    entry = NutritionLogModel(
+    entry = NutritionLog(
+        user_id=user_id,
         date=target_date,
         meal_type=parsed.get("meal_type", "snack"),
         name=parsed.get("name", payload.description[:60]),
@@ -187,14 +208,13 @@ def log_meal_from_description(payload: LogMealRequest, db: Session = Depends(get
 def get_nutrition_log(
     log_date: str = Query(None, alias="date"),
     db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
 ):
-    from database.models import NutritionLog as NutritionLogModel
-    from datetime import date as date_type
     target = date_type.fromisoformat(log_date) if log_date else date_type.today()
     rows = (
-        db.query(NutritionLogModel)
-        .filter(NutritionLogModel.date == target)
-        .order_by(NutritionLogModel.logged_at)
+        db.query(NutritionLog)
+        .filter(NutritionLog.user_id == user_id, NutritionLog.date == target)
+        .order_by(NutritionLog.logged_at)
         .all()
     )
     return [
@@ -215,30 +235,52 @@ def get_nutrition_log(
     ]
 
 
+@router.delete("/log/{entry_id}")
+def delete_nutrition_log_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    entry = db.query(NutritionLog).filter(NutritionLog.id == entry_id, NutritionLog.user_id == user_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/email-plan")
-def email_meal_plan(db: Session = Depends(get_db)):
-    """Generate a PDF of the latest meal plan and email it to Sandeep and Preetha."""
-    plan = db.query(MealPlan).filter(MealPlan.is_active == True).order_by(desc(MealPlan.generated_at)).first()
+def email_meal_plan(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    plan = (
+        db.query(MealPlan)
+        .filter(MealPlan.user_id == user_id, MealPlan.is_active == True)
+        .order_by(desc(MealPlan.generated_at))
+        .first()
+    )
     if not plan or not plan.plan_json:
         raise HTTPException(status_code=404, detail="No meal plan found. Generate one first.")
     try:
         from services.email_service import generate_pdf, send_plan_email
         from services.claude_service import _meal_plan_to_markdown
-        from datetime import datetime
         plan_data = json.loads(plan.plan_json)
         week = plan_data.get("week_start") or plan_data.get("week_label") or datetime.now().strftime("%Y-%m-%d")
         title = f"Meal Plan - {week}"
         markdown = _meal_plan_to_markdown(plan_data)
         pdf_bytes = generate_pdf(title, markdown)
         pdf_filename = f"meal_plan_{week.replace(', ', '_').replace(' ', '_')}.pdf"
-        profile = db.query(UserProfile).first()
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
         to_address = (profile.email or "").strip() if profile else ""
+        cc_address = (profile.weekly_email_cc or "").strip() if profile else ""
         send_plan_email(
             to_address=to_address,
             subject=title,
             body_text="Hi,\n\nThis week's meal plan is attached as a PDF.\n\nEnjoy!\n",
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
+            cc_address=cc_address or None,
         )
         return {"status": "sent", "sent_to": to_address}
     except RuntimeError as e:
@@ -253,23 +295,43 @@ class NutritionChatMessage(BaseModel):
 
 
 @router.post("/chat")
-def nutrition_chat(payload: NutritionChatMessage, db: Session = Depends(get_db)):
+def nutrition_chat(
+    payload: NutritionChatMessage,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     if not __import__("config").settings.anthropic_api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
 
     history_rows = (
         db.query(CoachConversation)
-        .filter(CoachConversation.session_id == payload.session_id)
+        .filter(
+            CoachConversation.user_id == user_id,
+            CoachConversation.session_id == payload.session_id,
+        )
         .order_by(CoachConversation.created_at)
         .limit(20)
         .all()
     )
     history = [{"role": row.role, "content": row.content} for row in history_rows]
 
-    response = claude_service.chat_with_nutritionist(payload.message, history, db)
+    response = claude_service.chat_with_nutritionist(payload.message, history, db, user_id=user_id)
 
-    db.add(CoachConversation(session_id=payload.session_id, role="user", content=payload.message))
-    db.add(CoachConversation(session_id=payload.session_id, role="assistant", content=response))
+    db.add(CoachConversation(user_id=user_id, session_id=payload.session_id, role="user", content=payload.message))
+    db.add(CoachConversation(user_id=user_id, session_id=payload.session_id, role="assistant", content=response))
     db.commit()
 
     return {"response": response}
+
+
+@router.delete("/chat/history")
+def clear_nutrition_chat(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    db.query(CoachConversation).filter(
+        CoachConversation.user_id == user_id,
+        CoachConversation.session_id == "nutrition-default",
+    ).delete()
+    db.commit()
+    return {"status": "cleared"}

@@ -1,6 +1,7 @@
 """
 Weekly summary email — gathers last 7 days of data and sends an HTML digest.
 """
+import uuid
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -8,13 +9,17 @@ from sqlalchemy.orm import Session
 
 from database.engine import SessionLocal
 from database.models import (
-    GarminDailyCache,
+    DailyHealthCache,
     HevyWorkout,
     NutritionLog,
+    User,
     UserProfile,
     WeightLog,
 )
 from services.email_service import send_html_email
+
+# Backward compat alias
+GarminDailyCache = DailyHealthCache
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -47,7 +52,7 @@ def _trend(current: float | None, previous: float | None) -> str:
 
 # ── Data gathering ────────────────────────────────────────────────────────────
 
-def _gather(db: Session) -> dict:
+def _gather(db: Session, user_id: uuid.UUID) -> dict:
     today = date.today()
     week_start = today - timedelta(days=6)
     prev_start = today - timedelta(days=13)
@@ -55,13 +60,13 @@ def _gather(db: Session) -> dict:
     # Weight
     weight_rows = (
         db.query(WeightLog)
-        .filter(WeightLog.date >= week_start)
+        .filter(WeightLog.user_id == user_id, WeightLog.date >= week_start)
         .order_by(WeightLog.date)
         .all()
     )
     prev_weight = (
         db.query(WeightLog)
-        .filter(WeightLog.date >= prev_start, WeightLog.date < week_start)
+        .filter(WeightLog.user_id == user_id, WeightLog.date >= prev_start, WeightLog.date < week_start)
         .all()
     )
     avg_w = _avg([r.weight_lbs for r in weight_rows])
@@ -70,7 +75,7 @@ def _gather(db: Session) -> dict:
     # Workouts
     workouts = (
         db.query(HevyWorkout)
-        .filter(HevyWorkout.start_time >= week_start)
+        .filter(HevyWorkout.user_id == user_id, HevyWorkout.start_time >= week_start)
         .order_by(HevyWorkout.start_time)
         .all()
     )
@@ -78,10 +83,10 @@ def _gather(db: Session) -> dict:
     # Nutrition
     nutrition = (
         db.query(NutritionLog)
-        .filter(NutritionLog.date >= week_start)
+        .filter(NutritionLog.user_id == user_id, NutritionLog.date >= week_start)
         .all()
     )
-    profile = db.query(UserProfile).first()
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     calorie_target = profile.calorie_target if profile else 2200
 
     daily_kcal: dict[date, int] = defaultdict(int)
@@ -90,11 +95,11 @@ def _gather(db: Session) -> dict:
         daily_kcal[row.date] += row.kcal
         daily_protein[row.date] += row.protein_g
 
-    # Garmin
-    garmin = (
-        db.query(GarminDailyCache)
-        .filter(GarminDailyCache.date >= week_start)
-        .order_by(GarminDailyCache.date)
+    # Health cache (Garmin / Google Fit)
+    health_rows = (
+        db.query(DailyHealthCache)
+        .filter(DailyHealthCache.user_id == user_id, DailyHealthCache.date >= week_start)
+        .order_by(DailyHealthCache.date)
         .all()
     )
 
@@ -114,9 +119,9 @@ def _gather(db: Session) -> dict:
             "calorie_target": calorie_target,
         },
         "garmin": {
-            "avg_steps": _avg([r.steps for r in garmin]),
-            "avg_sleep": _avg([r.sleep_duration_hours for r in garmin]),
-            "avg_rhr": _avg([r.resting_hr for r in garmin]),
+            "avg_steps": _avg([r.steps for r in health_rows]),
+            "avg_sleep": _avg([r.sleep_duration_hours for r in health_rows]),
+            "avg_rhr": _avg([r.resting_hr for r in health_rows]),
         },
     }
 
@@ -205,7 +210,7 @@ def _build_html(data: dict) -> str:
         _section("⚖️ Weight", weight_rows)
         + _section("🏋️ Workouts", workout_rows)
         + _section("🥗 Nutrition", nutrition_rows)
-        + _section("⌚ Garmin Highlights", garmin_rows)
+        + _section("⌚ Health Highlights", garmin_rows)
     )
 
     return f"""<!DOCTYPE html>
@@ -243,23 +248,56 @@ def _build_html(data: dict) -> str:
 </html>"""
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+# ── Public entry points ───────────────────────────────────────────────────────
 
-def send_weekly_summary() -> None:
-    """Gather this week's data and email the summary. Called by the scheduler and the manual endpoint."""
+def send_weekly_summary_for_user(user_id: uuid.UUID, db: Session) -> None:
+    """Send the weekly summary for a specific user. Called by the email router and the scheduler."""
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
+    recipient = (profile.email if profile and getattr(profile, "email", None) else None) or (user.email if user else None)
+    if not recipient:
+        raise RuntimeError(f"No email address found for user {user_id}.")
+
+    # Respect opt-out
+    if profile and not getattr(profile, "weekly_email_enabled", True):
+        return
+
+    data = _gather(db, user_id)
+    html = _build_html(data)
+    week_str = data["week_start"].strftime("%b %d") + " – " + data["today"].strftime("%b %d")
+    cc = getattr(profile, "weekly_email_cc", None) if profile else None
+    send_html_email(
+        to_address=recipient,
+        subject=f"Weekly Health Summary — {week_str}",
+        html=html,
+        cc=cc,
+    )
+
+
+def send_weekly_summary_all_users() -> None:
+    """Loop over all active users with email enabled and send their summaries. Called by the scheduler."""
+    import logging
+    log = logging.getLogger(__name__)
     db = SessionLocal()
     try:
-        profile = db.query(UserProfile).first()
-        if not profile or not profile.email:
-            raise RuntimeError("No recipient email. Set your email in Settings → Profile.")
-
-        data = _gather(db)
-        html = _build_html(data)
-        week_str = data["week_start"].strftime("%b %d") + " – " + data["today"].strftime("%b %d")
-        send_html_email(
-            to_address=profile.email,
-            subject=f"Weekly Health Summary — {week_str}",
-            html=html,
+        profiles = (
+            db.query(UserProfile)
+            .filter(UserProfile.weekly_email_enabled == True)
+            .all()
         )
+        for profile in profiles:
+            if not profile.user_id:
+                continue
+            try:
+                send_weekly_summary_for_user(user_id=profile.user_id, db=db)
+                log.info("Weekly summary sent for user %s", profile.user_id)
+            except Exception as exc:
+                log.error("Failed to send weekly summary for user %s: %s", profile.user_id, exc)
     finally:
         db.close()
+
+
+# Legacy shim — kept so any old direct callers don't break
+def send_weekly_summary() -> None:
+    """Deprecated: use send_weekly_summary_all_users() instead."""
+    send_weekly_summary_all_users()
