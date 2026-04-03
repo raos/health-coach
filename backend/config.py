@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-this-to-a-random-secret"
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 30
-    allowed_email: str = ""  # If set, only this Google account can log in
+
+    # Multi-tenant: admin email gets is_admin=True on first login
+    admin_email: str = ""
+    # Legacy single-user gate (ignored in multi-tenant mode, kept for compat)
+    allowed_email: str = ""
 
     # Frontend URL (for redirects after OAuth)
     frontend_url: str = "http://localhost:5173"
@@ -31,24 +35,29 @@ class Settings(BaseSettings):
     strava_client_secret: str = ""
     strava_redirect_uri: str = "http://localhost:8000/api/strava/auth/callback"
 
-    # Garmin
+    # Garmin (global fallback; per-user sessions stored on disk)
     garmin_email: str = ""
     garmin_password: str = ""
+    garmin_session_dir: str = "./garmin_session"
 
-    # Hevy
+    # Hevy (global fallback; per-user key stored in UserProfile)
     hevy_api_key: str = ""
-    # Legacy email/password fields kept for backwards compat (unused)
     hevy_email: str = ""
     hevy_password: str = ""
 
-    # MCP remote server API key
+    # Google Fit OAuth
+    google_fit_client_id: str = ""
+    google_fit_client_secret: str = ""
+    google_fit_redirect_uri: str = "http://localhost:8000/api/google-fit/auth/callback"
+
+    # MCP remote server API key (global fallback; per-user key in UserProfile.mcp_api_key)
     mcp_api_key: str = ""
 
     # Email (Resend)
-    resend_api_key: str = ""  # From resend.com — required for PDF email delivery
+    resend_api_key: str = ""
 
-    # Database
-    database_url: str = "sqlite:///./health.db"
+    # Database — defaults to local Postgres for multi-tenant branch
+    database_url: str = "postgresql://localhost/health_coach_dev"
 
     # Backend
     backend_host: str = "0.0.0.0"
