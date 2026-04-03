@@ -60,8 +60,13 @@ def complete_onboarding(
 ):
     profile = _get_or_create_profile(db, user_id)
     profile.onboarding_complete = True
-    # Auto-generate MCP key if missing
     if not profile.mcp_api_key:
         profile.mcp_api_key = str(uuid.uuid4())
     db.commit()
-    return {"status": "ok", "onboarding_complete": True}
+
+    # Issue a refreshed JWT with onboarding_complete=True
+    from database.models import User
+    from routers.auth import _issue_jwt
+    user = db.query(User).filter(User.id == user_id).first()
+    new_token = _issue_jwt(user, db) if user else None
+    return {"status": "ok", "onboarding_complete": True, "token": new_token}

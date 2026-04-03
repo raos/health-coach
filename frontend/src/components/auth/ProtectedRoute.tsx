@@ -1,4 +1,4 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 
 export interface AuthUser {
   sub: string;
@@ -6,6 +6,8 @@ export interface AuthUser {
   name: string;
   picture: string;
   exp: number;
+  onboarding_complete: boolean;
+  is_admin?: boolean;
 }
 
 /** Decode JWT payload without verifying the signature (trust is on the backend). */
@@ -28,6 +30,10 @@ export function getStoredUser(): AuthUser | null {
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = getStoredUser();
+  const location = useLocation();
   if (!user) return <Navigate to="/login" replace />;
+  if (!user.onboarding_complete && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace />;
+  }
   return <>{children}</>;
 }
