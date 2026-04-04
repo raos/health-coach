@@ -37,7 +37,7 @@ Analyze the provided data and give specific, actionable, evidence-based health i
 [VO2 max trajectory, resting HR trend, step count consistency. Reference 30-day and 7-day averages. Note days below 10k step goal. Connect to longevity outcomes.]
 
 ### Body Composition Progress
-[DEXA body fat %, visceral fat, lean mass, ALMI/FFMI vs targets. Weight trend over 30 days. Fat loss rate — is it sustainable? Is lean mass being preserved?]
+[Body fat %, lean mass vs targets. Weight trend over 30 days. Fat loss rate — is it sustainable? Is lean mass being preserved?]
 
 ### Training & Recovery
 [Strength workout frequency vs the 4-day upper/lower split goal. Volume trends from last 14 days. Training load vs recovery signals (resting HR, body battery). Are rest days adequate?]

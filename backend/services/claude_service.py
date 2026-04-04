@@ -9,7 +9,7 @@ from sqlalchemy import desc
 
 from config import settings
 from database.models import (
-    WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout,
+    WeightLog, BodyCompositionLog, Vo2MaxLog, StravaActivity, HevyWorkout,
     HevyExerciseSet, UserProfile, TrainingPlan, MealPlan, NutritionLog,
     Supplement, SupplementLog, GarminDailyCache, WeeklyCheckin
 )
@@ -87,36 +87,39 @@ def _user_info(profile) -> dict:
 
 
 def _build_current_stats(db: Session, user_id=None) -> str:
-    q_dexa = db.query(DexaScan)
+    q_bc = db.query(BodyCompositionLog)
     q_weight = db.query(WeightLog)
     q_vo2 = db.query(Vo2MaxLog)
     q_profile = db.query(UserProfile)
     if user_id is not None:
-        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_bc = q_bc.filter(BodyCompositionLog.user_id == user_id)
         q_weight = q_weight.filter(WeightLog.user_id == user_id)
         q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
         q_profile = q_profile.filter(UserProfile.user_id == user_id)
 
-    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_bc = q_bc.order_by(desc(BodyCompositionLog.date)).first()
     latest_weight = q_weight.order_by(desc(WeightLog.date)).first()
     latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
     profile = q_profile.first()
 
-    bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
-    lean = latest_dexa.lean_mass_lbs if latest_dexa else 123.9
-    weight = latest_weight.weight_lbs if latest_weight else (latest_dexa.total_weight_lbs if latest_dexa else 181.5)
+    bf = latest_bc.body_fat_pct if latest_bc else None
+    lean = latest_bc.lean_mass_lbs if latest_bc else None
+    weight = latest_weight.weight_lbs if latest_weight else None
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
-    dexa_date = str(latest_dexa.scan_date) if latest_dexa else "2026-03-13"
+    bc_date = str(latest_bc.date) if latest_bc else "not recorded"
 
     device = profile.training_device if profile and profile.training_device else "tonal"
     device_label = {"gym": "gym equipment", "bodyweight": "bodyweight only"}.get(device, "Tonal (cable-based)")
 
-    return f"""- Weight: {weight} lbs (as of {str(latest_weight.date) if latest_weight else "unknown"})
-- Body fat: {bf}% (DEXA as of {dexa_date})
-- Lean mass: {lean} lbs
-- VO2 Max: {vo2} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else "2026-12-31"})
-- Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else "2026-12-31"}
-- Training equipment: {device_label}"""
+    lines = [f"- Weight: {weight} lbs (as of {str(latest_weight.date) if latest_weight else 'unknown'})"]
+    if bf is not None:
+        lines.append(f"- Body fat: {bf}% (as of {bc_date})")
+    if lean is not None:
+        lines.append(f"- Lean mass: {lean} lbs")
+    lines.append(f"- VO2 Max: {vo2} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else '2026-12-31'})")
+    lines.append(f"- Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else '2026-12-31'}")
+    lines.append(f"- Training equipment: {device_label}")
+    return "\n".join(lines)
 
 
 def _build_recent_training(db: Session, user_id=None) -> str:
@@ -593,16 +596,16 @@ Pure JSON only, no markdown."""
 def generate_health_insights(db: Session, user_id=None) -> str:
     client = _get_client()
     q_profile = db.query(UserProfile)
-    q_dexa = db.query(DexaScan)
+    q_bc = db.query(BodyCompositionLog)
     q_vo2 = db.query(Vo2MaxLog)
     q_weight = db.query(WeightLog)
     if user_id is not None:
         q_profile = q_profile.filter(UserProfile.user_id == user_id)
-        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_bc = q_bc.filter(BodyCompositionLog.user_id == user_id)
         q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
         q_weight = q_weight.filter(WeightLog.user_id == user_id)
     profile = q_profile.first()
-    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_bc = q_bc.order_by(desc(BodyCompositionLog.date)).first()
     latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
     latest_weight = q_weight.order_by(desc(WeightLog.date)).first()
 
@@ -620,14 +623,12 @@ def generate_health_insights(db: Session, user_id=None) -> str:
         delta = last - first
         weight_trend_str = f"{len(weight_history)} readings over 30 days. Start: {first} lbs → Current: {last} lbs (Δ {delta:+.1f} lbs)"
 
-    user_profile_str = f"""- Age: 46 (DOB: Nov 11, 1979)
+    user_profile_str = f"""- Age: {profile.age if profile and hasattr(profile, 'age') else 'unknown'}
 - Height: {(profile.height_inches or 68):.0f} inches
 - Current weight: {latest_weight.weight_lbs if latest_weight else 'unknown'} lbs
-- DEXA body fat: {latest_dexa.body_fat_pct if latest_dexa else 28.4}% (scan date: {str(latest_dexa.scan_date) if latest_dexa else '2026-03-13'})
-- Lean mass: {latest_dexa.lean_mass_lbs if latest_dexa else 123.9} lbs
-- Visceral fat: {latest_dexa.visceral_fat_lbs if latest_dexa else 1.38} lbs (target: <0.60 lbs)
-- Android/Gynoid ratio: {latest_dexa.ag_ratio if latest_dexa else 1.17} (target: 0.6-0.8)
-- VO2 Max: {latest_vo2.vo2max if latest_vo2 else 45.0} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else '2026-12-31'})
+- Body fat: {latest_bc.body_fat_pct if latest_bc else 'not recorded'}% (as of {str(latest_bc.date) if latest_bc else 'unknown'})
+- Lean mass: {latest_bc.lean_mass_lbs if latest_bc else 'not recorded'} lbs
+- VO2 Max: {latest_vo2.vo2max if latest_vo2 else 'not recorded'} (goal: {profile.vo2max_goal if profile else 50.0}+ by {str(profile.goal_date) if profile else '2026-12-31'})
 - Body fat goal: {profile.bf_goal_pct if profile else 18.0}% by {str(profile.goal_date) if profile else '2026-12-31'}
 - Training: 4-day upper/lower split on Tonal, 2-3 cardio sessions/week
 - Diet: Vegetarian + eggs, South Indian, ~{profile.calorie_target if profile else 2200} kcal/day"""
@@ -689,65 +690,34 @@ def generate_health_insights(db: Session, user_id=None) -> str:
             )
         return sections
 
-    garmin_str = "Garmin data: Not connected (configure in Settings to enable sleep/HRV/body battery)."
-    garmin_source = "none"
+    garmin_str = "Garmin data: No data imported yet (use Settings → Garmin Connect to paste daily summary JSON)."
 
-    # Attempt 1: live Garmin API
+    # Read from DailyHealthCache (imported via paste-data or push-data endpoints)
     try:
-        from services.garmin_service import garmin_service
-        garmin_service._get_client()  # raises if session expired
-        sleep_range = garmin_service.get_sleep_range(30)
-        steps_range = garmin_service.get_steps_range(30)
-        rhr_range = garmin_service.get_resting_hr_range(30)
-        sections = _build_garmin_sections(sleep_range, steps_range, rhr_range)
-        # Body battery (live only)
-        try:
-            bb_data = garmin_service.get_body_battery()
-            if bb_data and isinstance(bb_data, list):
-                charged = [r.get("charged") or r.get("bodyBatteryLevel") for r in bb_data if r.get("charged") or r.get("bodyBatteryLevel")]
-                if charged:
-                    sections.append(f"Body Battery (today): peak {max(charged)}, current {charged[-1]}")
-        except Exception:
-            pass
-        if sections:
-            garmin_str = "Garmin 30-day trends (live):\n" + "\n".join(f"- {s}" for s in sections)
-            garmin_source = "live"
+        cache_cutoff = date.today() - timedelta(days=30)
+        cache_q = db.query(GarminDailyCache).filter(GarminDailyCache.date >= cache_cutoff)
+        if user_id is not None:
+            cache_q = cache_q.filter(GarminDailyCache.user_id == user_id)
+        cache_rows = cache_q.order_by(GarminDailyCache.date).all()
+        if cache_rows:
+            sleep_range = [
+                {"date": r.date.isoformat(), "duration_hours": r.sleep_duration_hours,
+                 "score": r.sleep_score, "deep_min": r.deep_min, "rem_min": r.rem_min}
+                for r in cache_rows if r.sleep_duration_hours
+            ]
+            steps_range = [
+                {"date": r.date.isoformat(), "steps": r.steps}
+                for r in cache_rows if r.steps
+            ]
+            rhr_range = [
+                {"date": r.date.isoformat(), "rhr": r.resting_hr}
+                for r in cache_rows if r.resting_hr
+            ]
+            sections = _build_garmin_sections(sleep_range, steps_range, rhr_range)
+            if sections:
+                garmin_str = "Garmin 30-day trends:\n" + "\n".join(f"- {s}" for s in sections)
     except Exception:
         pass
-
-    # Attempt 2: GarminDailyCache fallback (works even when session is expired)
-    if garmin_source == "none":
-        try:
-            cache_cutoff = date.today() - timedelta(days=30)
-            cache_q = (
-                db.query(GarminDailyCache)
-                .filter(GarminDailyCache.date >= cache_cutoff)
-            )
-            if user_id is not None:
-                cache_q = cache_q.filter(GarminDailyCache.user_id == user_id)
-            cache_rows = cache_q.order_by(GarminDailyCache.date).all()
-            if cache_rows:
-                sleep_range = [
-                    {"date": r.date.isoformat(), "duration_hours": r.sleep_duration_hours,
-                     "score": r.sleep_score, "deep_min": r.deep_min, "rem_min": r.rem_min}
-                    for r in cache_rows if r.sleep_duration_hours
-                ]
-                steps_range = [
-                    {"date": r.date.isoformat(), "steps": r.steps}
-                    for r in cache_rows if r.steps
-                ]
-                rhr_range = [
-                    {"date": r.date.isoformat(), "rhr": r.resting_hr}
-                    for r in cache_rows if r.resting_hr
-                ]
-                sections = _build_garmin_sections(sleep_range, steps_range, rhr_range)
-                if sections:
-                    garmin_str = (
-                        "Garmin 30-day trends (from cache — session needs reconnecting in Settings):\n"
-                        + "\n".join(f"- {s}" for s in sections)
-                    )
-        except Exception:
-            pass
 
     # ── Food log (last 14 days from NutritionLog) ─────────────────────────────
     food_log_str = "Food log: No meals logged yet."
@@ -847,10 +817,6 @@ def generate_health_insights(db: Session, user_id=None) -> str:
         pass
 
     health_data_str = f"""- Weight trend (30 days): {weight_trend_str}
-- DEXA scan date: {str(latest_dexa.scan_date) if latest_dexa else '2026-03-13'}
-- ALMI: {latest_dexa.almi if latest_dexa else 8.6} kg/m² (target: 9.5)
-- FFMI: {latest_dexa.ffmi if latest_dexa else 19.7} kg/m² (target: 21.0)
-- T-Score (bone density): {latest_dexa.t_score if latest_dexa else 0.50}
 
 {garmin_str}
 
@@ -963,22 +929,9 @@ _HEVY_TOOLS = [
 ]
 
 
-_hevy_client_instance = None
-
-
-def _get_hevy_client():
-    global _hevy_client_instance
-    from config import settings as cfg
-    from services.hevy_api_client import HevyAPIClient
-    if _hevy_client_instance is None:
-        _hevy_client_instance = HevyAPIClient(cfg.hevy_api_key)
-    return _hevy_client_instance
-
-
 def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None, user_id=None, hevy_api_key: str = None) -> str:
     try:
-        from config import settings as cfg
-        effective_key = hevy_api_key or cfg.hevy_api_key
+        effective_key = hevy_api_key
         if not effective_key:
             return json.dumps({"error": "HEVY_API_KEY not configured"})
 
@@ -1041,8 +994,6 @@ def _call_hevy_tool(tool_name: str, tool_input: dict, db: Session = None, user_i
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
         return json.dumps(fn())
     except Exception as e:
-        global _hevy_client_instance
-        _hevy_client_instance = None
         return json.dumps({"error": str(e)})
 
 
@@ -1092,28 +1043,26 @@ def _call_strava_tool(tool_name: str, tool_input: dict, db: Session, user_id=Non
 
 def chat_with_coach(message: str, history: list, db: Session, user_id=None) -> str:
     client = _get_client()
-    q_dexa = db.query(DexaScan)
+    q_bc = db.query(BodyCompositionLog)
     q_vo2 = db.query(Vo2MaxLog)
     q_profile = db.query(UserProfile)
     q_plan = db.query(TrainingPlan).filter(TrainingPlan.is_active == True)
     if user_id is not None:
-        q_dexa = q_dexa.filter(DexaScan.user_id == user_id)
+        q_bc = q_bc.filter(BodyCompositionLog.user_id == user_id)
         q_vo2 = q_vo2.filter(Vo2MaxLog.user_id == user_id)
         q_profile = q_profile.filter(UserProfile.user_id == user_id)
         q_plan = q_plan.filter(TrainingPlan.user_id == user_id)
-    latest_dexa = q_dexa.order_by(desc(DexaScan.scan_date)).first()
+    latest_bc = q_bc.order_by(desc(BodyCompositionLog.date)).first()
     latest_vo2 = q_vo2.order_by(desc(Vo2MaxLog.date)).first()
     profile = q_profile.first()
     active_plan = q_plan.order_by(desc(TrainingPlan.generated_at)).first()
 
-    bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
+    bf = latest_bc.body_fat_pct if latest_bc else None
     vo2 = latest_vo2.vo2max if latest_vo2 else 45.0
     training_device = (profile.training_device if profile and profile.training_device else "tonal")
     measurement_system = (profile.measurement_system if profile and profile.measurement_system else "imperial")
 
-    # Per-user hevy key, fall back to global config
-    from config import settings as cfg
-    hevy_api_key = (profile.hevy_api_key if profile and profile.hevy_api_key else None) or cfg.hevy_api_key
+    hevy_api_key = profile.hevy_api_key if profile and profile.hevy_api_key else None
     hevy_note = (
         "You have access to two training data sources — use the right one for each type:\n"
         "- **Hevy tools**: ALL strength/weight training (Tonal workouts). Use for lifting volume, exercise progress, PRs.\n"

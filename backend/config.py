@@ -35,26 +35,13 @@ class Settings(BaseSettings):
     strava_client_secret: str = ""
     strava_redirect_uri: str = "http://localhost:8000/api/strava/auth/callback"
 
-    # Garmin (global fallback; per-user sessions stored on disk)
-    garmin_email: str = ""
-    garmin_password: str = ""
-    garmin_session_dir: str = "./garmin_session"
-
-    # Hevy (global fallback; per-user key stored in UserProfile)
-    hevy_api_key: str = ""
-    hevy_email: str = ""
-    hevy_password: str = ""
-
-    # Google Fit OAuth
-    google_fit_client_id: str = ""
-    google_fit_client_secret: str = ""
-    google_fit_redirect_uri: str = "http://localhost:8000/api/google-fit/auth/callback"
-
-    # MCP remote server API key (global fallback; per-user key in UserProfile.mcp_api_key)
+    # MCP remote server — global fallback key for /api/garmin/push-data backwards compat.
+    # Per-user keys are stored in UserProfile.mcp_api_key and are the primary auth mechanism.
     mcp_api_key: str = ""
 
     # Email (Resend)
     resend_api_key: str = ""
+    resend_from_email: str = "HealthCoach <onboarding@resend.dev>"
 
     # Database — defaults to local Postgres for multi-tenant branch
     database_url: str = "postgresql://localhost/health_coach_dev"

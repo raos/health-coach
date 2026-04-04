@@ -53,6 +53,18 @@ def get_onboarding_status(
     return {"onboarding_complete": profile.onboarding_complete if profile else False}
 
 
+@router.post("/generate-mcp-key")
+def generate_mcp_key(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    """Generate (or regenerate) the per-user MCP API key."""
+    profile = _get_or_create_profile(db, user_id)
+    profile.mcp_api_key = str(uuid.uuid4())
+    db.commit()
+    return {"mcp_api_key": profile.mcp_api_key}
+
+
 @router.post("/complete-onboarding")
 def complete_onboarding(
     db: Session = Depends(get_db),

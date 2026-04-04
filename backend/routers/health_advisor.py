@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import HealthInsight, DexaScan
+from database.models import HealthInsight, BodyCompositionLog
 from dependencies import get_user_id
 from schemas.health import HealthInsightResponse
 from services import claude_service
@@ -37,10 +37,10 @@ def generate_insights(
 
     content = claude_service.generate_health_insights(db, user_id=user_id)
 
-    latest_dexa = (
-        db.query(DexaScan)
-        .filter(DexaScan.user_id == user_id)
-        .order_by(desc(DexaScan.scan_date))
+    latest_body_comp = (
+        db.query(BodyCompositionLog)
+        .filter(BodyCompositionLog.user_id == user_id)
+        .order_by(desc(BodyCompositionLog.date))
         .first()
     )
 
@@ -49,7 +49,7 @@ def generate_insights(
         insight_type="weekly_summary",
         content_md=content,
         data_snapshot=json.dumps({
-            "body_fat_pct": latest_dexa.body_fat_pct if latest_dexa else None,
+            "body_fat_pct": latest_body_comp.body_fat_pct if latest_body_comp else None,
         }),
         is_read=False,
     )

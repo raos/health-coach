@@ -40,7 +40,7 @@ from config import settings
 from database.engine import SessionLocal
 from database.models import (
     WeightLog, HevyWorkout, HevyExerciseSet,
-    TrainingPlan, GarminDailyCache, DexaScan,
+    TrainingPlan, GarminDailyCache, BodyCompositionLog,
     Vo2MaxLog, NutritionLog, HealthInsight, UserProfile,
     MealPlan, Supplement, SupplementLog, WeeklyCheckin,
 )
@@ -205,7 +205,7 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_health_summary",
-            description="Get a full health summary: current weight, body composition (DEXA), VO2 max, and recent Garmin metrics.",
+            description="Get a full health summary: current weight, body composition, VO2 max, and recent Garmin metrics.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -707,7 +707,7 @@ async def _get_health_summary(args: dict[str, Any]) -> list[types.TextContent]:
             return q
 
         latest_weight = _uid_filter(db.query(WeightLog), WeightLog).order_by(sa_desc(WeightLog.date)).first()
-        latest_dexa = _uid_filter(db.query(DexaScan), DexaScan).order_by(sa_desc(DexaScan.scan_date)).first()
+        latest_bc = _uid_filter(db.query(BodyCompositionLog), BodyCompositionLog).order_by(sa_desc(BodyCompositionLog.date)).first()
         latest_vo2 = _uid_filter(db.query(Vo2MaxLog), Vo2MaxLog).order_by(sa_desc(Vo2MaxLog.date)).first()
         profile = _uid_filter(db.query(UserProfile), UserProfile).first()
 
@@ -726,14 +726,13 @@ async def _get_health_summary(args: dict[str, Any]) -> list[types.TextContent]:
         else:
             lines.append("Weight: No data")
 
-        # DEXA
-        if latest_dexa:
-            lines.append(f"Body Fat: {latest_dexa.body_fat_pct}% (DEXA {latest_dexa.scan_date})")
-            lines.append(f"Lean Mass: {latest_dexa.lean_mass_lbs} lbs")
-            if latest_dexa.visceral_fat_lbs:
-                lines.append(f"Visceral Fat: {latest_dexa.visceral_fat_lbs} lbs")
+        # Body composition
+        if latest_bc:
+            lines.append(f"Body Fat: {latest_bc.body_fat_pct}% (as of {latest_bc.date})")
+            if latest_bc.lean_mass_lbs:
+                lines.append(f"Lean Mass: {latest_bc.lean_mass_lbs} lbs")
         else:
-            lines.append("DEXA: No data")
+            lines.append("Body composition: No data recorded")
 
         # VO2 max
         if latest_vo2:
@@ -835,7 +834,7 @@ async def _sync_data(args: dict[str, Any]) -> list[types.TextContent]:
         try:
             import services.hevy_service as hevy_svc
             profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first() if user_id else None
-            api_key = (profile.hevy_api_key if profile else None) or settings.hevy_api_key
+            api_key = profile.hevy_api_key if profile else None
             if api_key:
                 r = await asyncio.to_thread(hevy_svc.sync_workouts, db, user_id, api_key)
                 results["hevy"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"
@@ -1072,13 +1071,12 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
 # ── ASGI endpoint handlers ────────────────────────────────────────────────────
 
 async def sse_endpoint(request: Request):
-    """SSE handshake — validates per-user or global MCP_API_KEY, then starts MCP session."""
+    """SSE handshake — validates per-user MCP API key, then starts MCP session."""
     key = request.query_params.get("key", "")
     if not key:
         return Response("Unauthorized", status_code=401)
 
-    # Resolve user_id from the provided key.
-    # First try per-user key in UserProfile, then fall back to global key.
+    # Resolve user_id from the per-user key stored in UserProfile.
     user_id: Optional[_uuid_mod.UUID] = None
     db = SessionLocal()
     try:
@@ -1086,11 +1084,6 @@ async def sse_endpoint(request: Request):
         profile = db.query(_UP).filter(_UP.mcp_api_key == key).first()
         if profile:
             user_id = profile.user_id
-        elif settings.mcp_api_key and key == settings.mcp_api_key:
-            # Global key — look up admin user as fallback
-            from database.models import User as _User
-            admin = db.query(_User).filter(_User.is_admin == True).first()
-            user_id = admin.id if admin else None
         else:
             return Response("Unauthorized", status_code=401)
     finally:

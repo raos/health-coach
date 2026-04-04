@@ -137,7 +137,7 @@ def sync_activities(
     try:
         import services.hevy_service as hevy_svc
         profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-        api_key = (profile.hevy_api_key if profile else None) or __import__("config").settings.hevy_api_key
+        api_key = profile.hevy_api_key if profile else None
         if api_key:
             r = hevy_svc.sync_workouts(db, user_id=user_id, api_key=api_key)
             results["hevy"] = f"+{r['added']} added, {r['updated']} updated, {r['deleted']} deleted"

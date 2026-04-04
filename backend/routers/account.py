@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from database.engine import get_db
 from database.models import (
-    User, UserProfile, WeightLog, DexaScan, Vo2MaxLog, StravaActivity,
+    User, UserProfile, WeightLog, BodyCompositionLog, Vo2MaxLog, StravaActivity,
     HevyWorkout, HevyExerciseSet, TrainingPlan, MealPlan, NutritionLog,
     HealthInsight, CoachConversation, OAuthToken, GarminDailyCache,
     WeeklyCheckin, AuditLog
@@ -58,7 +58,7 @@ def export_data(
             ))
 
         add("weight_logs", db.query(WeightLog).filter(WeightLog.user_id == user_id).all())
-        add("dexa_scans", db.query(DexaScan).filter(DexaScan.user_id == user_id).all())
+        add("body_composition_logs", db.query(BodyCompositionLog).filter(BodyCompositionLog.user_id == user_id).all())
         add("vo2max_logs", db.query(Vo2MaxLog).filter(Vo2MaxLog.user_id == user_id).all())
         add("strava_activities", db.query(StravaActivity).filter(StravaActivity.user_id == user_id).all())
         add("hevy_workouts", db.query(HevyWorkout).filter(HevyWorkout.user_id == user_id).all())
@@ -77,7 +77,7 @@ def export_data(
             "Files:\n"
             "  profile.json          — Your profile settings and goals\n"
             "  weight_logs.json      — Daily weight entries\n"
-            "  dexa_scans.json       — Body composition scan history\n"
+            "  body_composition_logs.json — Body composition history\n"
             "  vo2max_logs.json      — VO2 max measurements\n"
             "  strava_activities.json— Synced cardio activities\n"
             "  hevy_workouts.json    — Synced strength training sessions\n"

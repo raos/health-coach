@@ -25,3 +25,21 @@ def get_status(
 ):
     svc = StravaService(db, user_id)
     return svc.get_status()
+
+
+@router.delete("/disconnect")
+def disconnect_strava(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    from database.models import OAuthToken
+    token = db.query(OAuthToken).filter(
+        OAuthToken.service == "strava",
+        OAuthToken.user_id == user_id,
+    ).first()
+    if not token:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No Strava connection found.")
+    db.delete(token)
+    db.commit()
+    return {"status": "disconnected"}

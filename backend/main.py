@@ -1,10 +1,11 @@
+import uuid
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database.engine import init_db, get_db
-from dependencies import verify_token
-from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin, account
+from dependencies import verify_token, get_user_id
+from routers import weight, body_composition, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin, account
 from routers import auth
 
 app = FastAPI(
@@ -51,7 +52,6 @@ app.include_router(auth.router)
 
 # Strava OAuth callback is called by Strava's servers — no JWT available
 from fastapi import Query
-from starlette.requests import Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from services.strava_service import StravaService
@@ -87,7 +87,7 @@ app.add_api_route("/api/garmin/push-data", garmin_push_data, methods=["POST"], t
 # ── Protected routes (JWT required) ─────────────────────────────────────────
 _auth = [Depends(verify_token)]
 app.include_router(weight.router, dependencies=_auth)
-app.include_router(dexa.router, dependencies=_auth)
+app.include_router(body_composition.router, dependencies=_auth)
 app.include_router(dashboard.router, dependencies=_auth)
 app.include_router(coach.router, dependencies=_auth)
 app.include_router(nutrition.router, dependencies=_auth)
@@ -110,25 +110,17 @@ def health_check():
 
 @app.get("/api/settings/status", dependencies=_auth)
 def settings_status(
-    request: Request,
     db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
 ):
-    from dependencies import get_user_id as _get_uid
     from database.models import UserProfile as _UP
-    import uuid as _uuid
-    # Try to get per-user MCP key; fall back to global
-    try:
-        token_data = verify_token(request.headers.get("Authorization", "").removeprefix("Bearer "))
-        uid = _uuid.UUID(token_data["user_id"]) if token_data.get("user_id") else None
-        profile = db.query(_UP).filter(_UP.user_id == uid).first() if uid else None
-        mcp_key = (profile.mcp_api_key if profile and profile.mcp_api_key else None) or settings.mcp_api_key
-        hevy_configured = bool((profile.hevy_api_key if profile else None) or settings.hevy_api_key)
-    except Exception:
-        mcp_key = settings.mcp_api_key
-        hevy_configured = bool(settings.hevy_api_key)
+    profile = db.query(_UP).filter(_UP.user_id == user_id).first()
+    # Auto-generate MCP key for existing users who don't have one yet
+    if profile and not profile.mcp_api_key:
+        profile.mcp_api_key = str(uuid.uuid4())
+        db.commit()
     return {
-        "garmin": bool(settings.garmin_email and settings.garmin_password),
-        "hevy": hevy_configured,
+        "hevy": bool(profile.hevy_api_key if profile else None),
         "anthropic": bool(settings.anthropic_api_key),
-        "mcp_api_key": mcp_key,
+        "mcp_api_key": profile.mcp_api_key if profile else None,
     }

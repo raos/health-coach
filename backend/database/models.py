@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date
 from sqlalchemy import (
     Column, Integer, BigInteger, Float, String, Date, DateTime, Text, Boolean,
-    ForeignKey, UniqueConstraint, JSON
+    ForeignKey, ForeignKeyConstraint, UniqueConstraint, JSON
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -95,25 +95,16 @@ class WeightLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class DexaScan(Base):
-    __tablename__ = "dexa_scans"
+class BodyCompositionLog(Base):
+    __tablename__ = "body_composition_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    scan_date = Column(Date, nullable=False)
-    total_weight_lbs = Column(Float, nullable=False)
+    date = Column(Date, nullable=False)
     body_fat_pct = Column(Float, nullable=False)
-    fat_mass_lbs = Column(Float, nullable=False)
-    lean_mass_lbs = Column(Float, nullable=False)
-    bone_mass_lbs = Column(Float)
-    visceral_fat_lbs = Column(Float)
-    ag_ratio = Column(Float)
-    almi = Column(Float)
-    ffmi = Column(Float)
-    t_score = Column(Float)
-    facility = Column(String(100))
+    lean_mass_lbs = Column(Float, nullable=True)
+    fat_mass_lbs = Column(Float, nullable=True)
     notes = Column(Text)
-    raw_pdf_path = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -132,7 +123,7 @@ class StravaActivity(Base):
     __tablename__ = "strava_activities"
 
     id = Column(BigInteger, primary_key=True)  # Strava activity ID (64-bit)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True, primary_key=True)
     name = Column(String(255), nullable=False)
     activity_type = Column(String(50))
     start_date = Column(DateTime, nullable=False)
@@ -152,7 +143,7 @@ class HevyWorkout(Base):
     __tablename__ = "hevy_workouts"
 
     id = Column(String(100), primary_key=True)  # Hevy UUID
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True, primary_key=True)
     title = Column(String(255))
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
@@ -169,13 +160,21 @@ class HevyExerciseSet(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    workout_id = Column(String(100), ForeignKey("hevy_workouts.id"), nullable=False)
+    workout_id = Column(String(100), nullable=False)
     exercise_name = Column(String(255), nullable=False)
     set_index = Column(Integer)
     weight_lbs = Column(Float)
     reps = Column(Integer)
     rpe = Column(Float)
     set_type = Column(String(20))  # 'normal' | 'warmup' | 'dropset'
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workout_id", "user_id"],
+            ["hevy_workouts.id", "hevy_workouts.user_id"],
+            name="hevy_exercise_sets_workout_user_fkey",
+        ),
+    )
 
     workout = relationship("HevyWorkout", back_populates="exercise_sets")
 

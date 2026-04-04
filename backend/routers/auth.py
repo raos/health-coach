@@ -242,8 +242,12 @@ async def send_magic_link(payload: MagicLinkRequest, request: Request, db: Sessi
 
     if is_new_user:
         invite = _validate_invite(db, payload.invite_code)
-        is_admin_email = bool(settings.admin_email and email == settings.admin_email.lower())
-        if not invite and not is_admin_email:
+        allowed = {e.strip().lower() for e in settings.allowed_email.split(",") if e.strip()}
+        is_privileged = (
+            (settings.admin_email and email == settings.admin_email.lower()) or
+            email in allowed
+        )
+        if not invite and not is_privileged:
             raise HTTPException(status_code=403, detail="A valid invite code is required to create an account.")
 
     # Generate a short-lived token

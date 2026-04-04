@@ -14,6 +14,18 @@ from dependencies import get_user_id
 router = APIRouter(prefix="/api/hevy", tags=["hevy"])
 
 
+@router.delete("/disconnect")
+def disconnect_hevy(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    if profile:
+        profile.hevy_api_key = None
+        db.commit()
+    return {"status": "disconnected"}
+
+
 @router.get("/exercises")
 def list_exercises(
     db: Session = Depends(get_db),
@@ -156,7 +168,7 @@ def push_routine(
     Returns: { routine_id, matched: [...], unmatched: [...] }
     """
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    api_key = (profile.hevy_api_key if profile else None) or settings.hevy_api_key
+    api_key = profile.hevy_api_key if profile else None
     if not api_key:
         raise HTTPException(status_code=503, detail="Hevy API key not configured. Add it in Settings.")
 

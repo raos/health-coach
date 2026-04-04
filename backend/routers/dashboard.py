@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database.engine import get_db
-from database.models import WeightLog, DexaScan, Vo2MaxLog, StravaActivity, HevyWorkout, UserProfile
+from database.models import WeightLog, BodyCompositionLog, Vo2MaxLog, StravaActivity, HevyWorkout, UserProfile
 from dependencies import get_user_id
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -29,7 +29,12 @@ def get_summary(
     user_id: uuid.UUID = Depends(get_user_id),
 ):
     latest_weight = db.query(WeightLog).filter(WeightLog.user_id == user_id).order_by(desc(WeightLog.date)).first()
-    latest_dexa = db.query(DexaScan).filter(DexaScan.user_id == user_id).order_by(desc(DexaScan.scan_date)).first()
+    latest_body_comp = (
+        db.query(BodyCompositionLog)
+        .filter(BodyCompositionLog.user_id == user_id)
+        .order_by(desc(BodyCompositionLog.date))
+        .first()
+    )
     latest_vo2 = db.query(Vo2MaxLog).filter(Vo2MaxLog.user_id == user_id).order_by(desc(Vo2MaxLog.date)).first()
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
 
@@ -41,16 +46,13 @@ def get_summary(
             "source": latest_weight.source,
             "created_at": latest_weight.created_at.isoformat(),
         } if latest_weight else None,
-        "latest_dexa": {
-            "id": latest_dexa.id,
-            "scan_date": str(latest_dexa.scan_date),
-            "total_weight_lbs": latest_dexa.total_weight_lbs,
-            "body_fat_pct": latest_dexa.body_fat_pct,
-            "fat_mass_lbs": latest_dexa.fat_mass_lbs,
-            "lean_mass_lbs": latest_dexa.lean_mass_lbs,
-            "visceral_fat_lbs": latest_dexa.visceral_fat_lbs,
-            "ag_ratio": latest_dexa.ag_ratio,
-        } if latest_dexa else None,
+        "latest_body_comp": {
+            "id": latest_body_comp.id,
+            "date": str(latest_body_comp.date),
+            "body_fat_pct": latest_body_comp.body_fat_pct,
+            "fat_mass_lbs": latest_body_comp.fat_mass_lbs,
+            "lean_mass_lbs": latest_body_comp.lean_mass_lbs,
+        } if latest_body_comp else None,
         "latest_vo2max": {
             "id": latest_vo2.id,
             "date": str(latest_vo2.date),
@@ -212,43 +214,81 @@ def get_vo2_trend(
     return [{"date": str(r.date), "vo2max": r.vo2max, "source": r.source} for r in rows]
 
 
+@router.post("/log-vo2")
+def log_vo2(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    """Log an initial VO2 max reading (e.g. from onboarding)."""
+    from pydantic import BaseModel
+    vo2 = payload.get("vo2max")
+    if not vo2:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="vo2max is required")
+    entry = Vo2MaxLog(
+        user_id=user_id,
+        date=date.today(),
+        vo2max=float(vo2),
+        source="manual",
+    )
+    db.add(entry)
+    db.commit()
+    return {"vo2max": float(vo2), "date": str(date.today())}
+
+
 @router.get("/goal-progress")
 def get_goal_progress(
     db: Session = Depends(get_db),
     user_id: uuid.UUID = Depends(get_user_id),
 ):
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    latest_dexa = db.query(DexaScan).filter(DexaScan.user_id == user_id).order_by(desc(DexaScan.scan_date)).first()
+    latest_body_comp = (
+        db.query(BodyCompositionLog)
+        .filter(BodyCompositionLog.user_id == user_id)
+        .order_by(desc(BodyCompositionLog.date))
+        .first()
+    )
     latest_vo2 = db.query(Vo2MaxLog).filter(Vo2MaxLog.user_id == user_id).order_by(desc(Vo2MaxLog.date)).first()
 
-    baseline_bf = latest_dexa.body_fat_pct if latest_dexa else 28.4
-    baseline_vo2 = 45.0
-    bf_goal = profile.bf_goal_pct if profile and profile.bf_goal_pct else 18.0
-    vo2_goal = profile.vo2max_goal if profile and profile.vo2max_goal else 50.0
+    bf_goal = profile.bf_goal_pct if profile and profile.bf_goal_pct else None
+    vo2_goal = profile.vo2max_goal if profile and profile.vo2max_goal else None
 
-    bf_current = latest_dexa.body_fat_pct if latest_dexa else baseline_bf
-    vo2_current = latest_vo2.vo2max if latest_vo2 else baseline_vo2
+    bf_current = latest_body_comp.body_fat_pct if latest_body_comp else None
+    vo2_current = latest_vo2.vo2max if latest_vo2 else None
 
-    bf_total_gap = baseline_bf - bf_goal
-    bf_closed = baseline_bf - bf_current
-    bf_pct_complete = max(0, min(100, (bf_closed / bf_total_gap * 100) if bf_total_gap > 0 else 0))
+    # BF progress: use first-ever body composition log as baseline
+    bf_pct_complete = None
+    bf_lbs_to_lose = None
+    if bf_current is not None and bf_goal is not None:
+        first_bc = (
+            db.query(BodyCompositionLog)
+            .filter(BodyCompositionLog.user_id == user_id)
+            .order_by(BodyCompositionLog.date)
+            .first()
+        )
+        baseline_bf = first_bc.body_fat_pct if first_bc else bf_current
+        bf_total_gap = baseline_bf - bf_goal
+        bf_pct_complete = round(max(0, min(100, ((baseline_bf - bf_current) / bf_total_gap * 100) if bf_total_gap > 0 else 0)), 1)
+        current_weight = db.query(WeightLog).filter(WeightLog.user_id == user_id).order_by(desc(WeightLog.date)).first()
+        weight = current_weight.weight_lbs if current_weight else None
+        if weight:
+            bf_lbs_to_lose = round(max(0, weight * (bf_current / 100) - weight * (bf_goal / 100)), 1)
 
-    vo2_total_gap = vo2_goal - baseline_vo2
-    vo2_gained = vo2_current - baseline_vo2
-    vo2_pct_complete = max(0, min(100, (vo2_gained / vo2_total_gap * 100) if vo2_total_gap > 0 else 0))
-
-    current_weight = db.query(WeightLog).filter(WeightLog.user_id == user_id).order_by(desc(WeightLog.date)).first()
-    weight = current_weight.weight_lbs if current_weight else (latest_dexa.total_weight_lbs if latest_dexa else 181.5)
-    target_fat_mass = weight * (bf_goal / 100)
-    current_fat_mass = weight * (bf_current / 100)
-    bf_lbs_to_lose = max(0, current_fat_mass - target_fat_mass)
+    # VO2 progress: use first-ever reading as baseline
+    vo2_pct_complete = None
+    if vo2_current is not None and vo2_goal is not None:
+        first_vo2 = db.query(Vo2MaxLog).filter(Vo2MaxLog.user_id == user_id).order_by(Vo2MaxLog.date).first()
+        baseline_vo2 = first_vo2.vo2max if first_vo2 else vo2_current
+        vo2_total_gap = vo2_goal - baseline_vo2
+        vo2_pct_complete = round(max(0, min(100, ((vo2_current - baseline_vo2) / vo2_total_gap * 100) if vo2_total_gap > 0 else 0)), 1)
 
     return {
         "bf_current": bf_current,
         "bf_goal": bf_goal,
-        "bf_pct_complete": round(bf_pct_complete, 1),
-        "bf_lbs_to_lose": round(bf_lbs_to_lose, 1),
+        "bf_pct_complete": bf_pct_complete,
+        "bf_lbs_to_lose": bf_lbs_to_lose,
         "vo2_current": vo2_current,
         "vo2_goal": vo2_goal,
-        "vo2_pct_complete": round(vo2_pct_complete, 1),
+        "vo2_pct_complete": vo2_pct_complete,
     }
