@@ -7,22 +7,13 @@ export interface WeightLog {
   created_at: string;
 }
 
-export interface DexaScan {
+export interface BodyCompositionLog {
   id: number;
-  scan_date: string;
-  total_weight_lbs: number;
+  date: string;
   body_fat_pct: number;
-  fat_mass_lbs: number;
-  lean_mass_lbs: number;
-  bone_mass_lbs?: number;
-  visceral_fat_lbs?: number;
-  ag_ratio?: number;
-  almi?: number;
-  ffmi?: number;
-  t_score?: number;
-  facility?: string;
+  lean_mass_lbs?: number;
+  fat_mass_lbs?: number;
   notes?: string;
-  raw_pdf_path?: string;
 }
 
 export interface Vo2MaxLog {
@@ -67,7 +58,7 @@ export interface ActivityFeedItem {
 
 export interface DashboardSummary {
   latest_weight?: WeightLog;
-  latest_dexa?: DexaScan;
+  latest_body_comp?: BodyCompositionLog;
   latest_vo2max?: Vo2MaxLog;
   goal_bf_pct: number;
   goal_vo2max: number;
@@ -75,14 +66,14 @@ export interface DashboardSummary {
 }
 
 export interface GoalProgress {
-  bf_current: number;
-  bf_goal: number;
-  bf_pct_complete: number;
-  bf_lbs_to_lose: number;
+  bf_current: number | null;
+  bf_goal: number | null;
+  bf_pct_complete: number | null;
+  bf_lbs_to_lose: number | null;
   bf_projected_date?: string;
-  vo2_current: number;
-  vo2_goal: number;
-  vo2_pct_complete: number;
+  vo2_current: number | null;
+  vo2_goal: number | null;
+  vo2_pct_complete: number | null;
 }
 
 export interface UserProfile {
@@ -97,9 +88,16 @@ export interface UserProfile {
   calorie_target: number | null;
   measurement_system: "imperial" | "metric";
   training_device: "tonal" | "gym" | "bodyweight";
+  training_days_strength?: number | null;
+  training_days_cardio?: number | null;
+  training_days_rest?: number | null;
   breakfast_pref?: string | null;
   lunch_pref?: string | null;
   dinner_pref?: string | null;
+  dietary_preference?: string | null;
+  preferred_cuisines?: string | null;
+  preferred_exercises?: string | null;
+  exercises_to_avoid?: string | null;
 }
 
 export interface TrainingPlan {

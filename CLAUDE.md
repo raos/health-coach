@@ -1,6 +1,6 @@
 # Health Coach App — CLAUDE.md
 
-Personal health coaching web app for Sandeep Rao. Combines Claude AI with Strava, Garmin, and Hevy integrations to generate training plans, meal plans, and health insights. Includes a remote MCP server so Claude on mobile/desktop can log meals and query health data.
+Multi-tenant personal health coaching web app. Each user gets their own AI training coach, nutritionist, and health advisor (Claude AI), with per-user Strava, Garmin, and Hevy integrations. Includes a per-user remote MCP server so Claude on mobile/desktop can log meals and query health data. Invite-only sign-up; admin panel for user management.
 
 ---
 
@@ -21,131 +21,191 @@ cd frontend && npm run dev
 
 The `.env` file lives at the **repo root** (`/health/.env`), not inside `backend/`. `config.py` loads it via `env_file="../.env"`.
 
+### Database migrations
+
+```bash
+cd backend && alembic upgrade head
+```
+
+Alembic manages all schema changes. `init_db()` calls `Base.metadata.create_all()` as a safety net for fresh installs, but migrations are authoritative for existing databases.
+
 ---
 
 ## Architecture
 
 ```
-backend/          FastAPI + SQLAlchemy (SQLite)
+backend/          FastAPI + SQLAlchemy (PostgreSQL)
   main.py         App init, CORS, router registration, MCP routes, /api/settings/status, APScheduler startup
   config.py       Pydantic Settings — all secrets loaded from root .env
-  dependencies.py verify_token() FastAPI dependency (JWT validation)
-  mcp_server.py   Remote MCP server (14 tools, SSE transport, API key auth)
+  dependencies.py verify_token(), get_user_id(), get_current_user(), require_admin() FastAPI dependencies
+  mcp_server.py   Remote MCP server (14 tools, SSE transport, per-user API key auth)
+  alembic/        Database migrations
+    versions/     Migration scripts (Alembic autogenerate)
   database/
-    engine.py     SQLite engine (WAL mode), init_db(), seed on first run
-    models.py     14 ORM models
+    engine.py     PostgreSQL engine (pool_pre_ping, pool_size=5), init_db()
+    models.py     20 ORM models (5 auth/user management + 15 health data)
   routers/        HTTP layer only — no business logic
-    auth.py       Google OAuth flow + JWT issuance (public, no auth required)
+    auth.py       Google OAuth flow + magic link auth + invite code management + logout
+    admin.py      User list, toggle is_active/is_admin, audit log, usage stats (admin only)
+    account.py    Data export (ZIP), account deletion, conversation wipe
     nutrition.py  Meal plans, food log (GET+POST), nutritionist chat
     coach.py      Training plans, coach chat, data sync
     checkin.py    Weekly check-in POST/GET endpoints
     email.py      Manual trigger for weekly summary email (POST /api/email/weekly-summary)
+    supplements.py Supplement CRUD + daily logging
+    body_composition.py Body fat / lean mass logging
   services/       All business logic and external API calls
     claude_service.py        All Claude AI calls — plans, chat, parse_meal_description()
-    weekly_summary_service.py  Gathers 7-day data, builds HTML email, called by scheduler + endpoint
+    weekly_summary_service.py  send_weekly_summary_all_users() — called by scheduler + endpoint
   prompts/        Claude system prompts as Python string constants
     nutrition_system.py  Contains NUTRITION_SYSTEM_PROMPT + NUTRITIONIST_CHAT_SYSTEM
-  schemas/        Pydantic request/response models
+  scripts/
+    migrate_sqlite_to_postgres.py  One-time SQLite → PostgreSQL data migration
+    seed_admin_user.py             Bootstrap admin user row for fresh installs
 
 frontend/         React 19 + TypeScript + Vite + Tailwind CSS v4
   src/api/        One Axios client per domain; client.ts injects JWT on every request
-  src/pages/      Login, Dashboard, Coach, Nutrition, HealthAdvisor, Settings
+  src/pages/      Login, Onboarding, Dashboard, Coach, Nutrition, HealthAdvisor, Settings, Admin
+    Login.tsx     Google OAuth + magic link tabs; invite code input
+    Onboarding.tsx 5-step wizard for new users (personal → goals → training → nutrition → integrations)
+    Admin.tsx     User management + invite code generator (is_admin only)
     Nutrition.tsx 4 tabs: Meal Plan | Food Log | Shopping List | Nutritionist
+    Settings.tsx  Profile, integrations, per-user MCP key, data export, account deletion
   src/components/
-    auth/         ProtectedRoute.tsx — redirects to /login if no valid token
-    layout/       Sidebar with Google profile photo + logout button
+    auth/         ProtectedRoute.tsx — redirects to /onboarding if onboarding_complete=false
+    layout/       Sidebar with Google profile photo + logout button + Admin link (admin only)
     shared/       MarkdownRenderer uses react-markdown + remark-gfm
   src/types/      All TypeScript interfaces in index.ts
 ```
 
 ---
 
-## Authentication (Google OAuth + JWT)
+## Authentication (Google OAuth + Magic Link + JWT)
 
-The app requires sign-in via Google OAuth before accessing any page.
+### Auth flows
 
-### Flow
+**Google OAuth** (primary):
 1. User visits any route → `ProtectedRoute` checks `localStorage("auth_token")` → redirects to `/login` if missing/expired
-2. User clicks "Continue with Google" → frontend calls `GET /api/auth/google/url` → redirects to Google
-3. Google redirects to `GET /api/auth/google/callback` (public, no JWT) → backend exchanges code for user info → issues a JWT → 302 redirect to `http://localhost:5173/auth/callback?token=<jwt>`
+2. User enters optional invite code, clicks "Continue with Google" → frontend calls `GET /api/auth/google/url?invite=<code>` → redirects to Google (code encoded in `state`)
+3. Google redirects to `GET /api/auth/google/callback` (public) → validates invite code for new users → upserts User + UserProfile → issues JWT → 302 redirect to `FRONTEND_URL/auth/callback?token=<jwt>`
 4. `AuthCallback.tsx` stores the token in `localStorage` and navigates to `/`
-5. All subsequent API calls include `Authorization: Bearer <token>` via the Axios interceptor
+
+**Magic link email** (fallback):
+1. User enters email + invite code → `POST /api/auth/magic-link/send` → email sent via Resend (15-minute link)
+2. User clicks link → `GET /api/auth/magic-link/verify?token=<token>` → marks token used, upserts User + UserProfile, issues JWT → redirect to `FRONTEND_URL/auth/callback?token=<jwt>`
+
+**Logout / session revocation**:
+- `POST /api/auth/logout` sets `User.last_logout_at = utcnow()`
+- `get_current_user()` compares JWT `iat` against `last_logout_at` — tokens issued before logout are rejected with 401
 
 ### JWT details
 - Signed with `JWT_SECRET_KEY` (HS256), expires after `JWT_EXPIRE_DAYS` days (default: 30)
-- Payload contains: `email`, `name`, `picture`, `sub`, `exp`
-- Decoded client-side in `getStoredUser()` (no signature verification needed — trust is on the backend)
-- `verify_token()` in `backend/dependencies.py` validates the token on every protected route
+- Payload: `user_id` (UUID str), `sub` (same UUID), `email`, `name`, `picture`, `is_admin`, `onboarding_complete`, `exp`, `iat`
+- `verify_token()` validates; `get_user_id()` extracts UUID; `get_current_user()` fetches the full User ORM row
+
+### FastAPI dependency chain
+```
+verify_token()       → validates JWT, returns payload dict
+get_user_id()        → Depends(verify_token), returns uuid.UUID
+get_current_user()   → Depends(verify_token) + DB, returns User ORM row (checks is_active, session revocation)
+require_admin()      → Depends(get_current_user), raises 403 if not is_admin
+```
+
+### Invite codes
+- New users (non-admin) must supply a valid invite code at sign-up
+- Admin creates codes: `POST /api/auth/invite-codes` (or via `/admin` UI)
+- Codes support `max_uses`, `expires_days`
+- First login with `ADMIN_EMAIL` env var needs no invite code (bootstrap)
+- `GET /api/auth/validate-invite?code=<code>` is public — used by login page to check before submit
+
+### Onboarding
+New non-admin users have `UserProfile.onboarding_complete = False`. `ProtectedRoute` reads `onboarding_complete` from the JWT and redirects to `/onboarding` until the 5-step wizard is completed.
 
 ### Route protection in main.py
 ```python
 # Public — no JWT
-app.include_router(auth.router)
-app.get("/api/strava/auth/callback")   # called by Strava's servers, no JWT available
-app.add_route("/mcp/sse", sse_endpoint)        # API key auth, not JWT
+app.include_router(auth.router)           # /api/auth/* (OAuth, magic link, invite validation)
+app.get("/api/strava/auth/callback")      # called by Strava's servers; user_id from state param
+app.add_route("/mcp/sse", sse_endpoint)   # per-user API key auth, not JWT
 app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
+app.add_api_route("/api/garmin/push-data", ...)  # API key auth
 
 # Protected — all require valid JWT
 _auth = [Depends(verify_token)]
-app.include_router(weight.router, dependencies=_auth)
-app.include_router(strava.router, dependencies=_auth)
+app.include_router(admin.router, dependencies=_auth)  # admin routes further require require_admin()
+app.include_router(account.router, dependencies=_auth)
 # ... all other routers
 ```
 
 ### Critical auth gotchas
-- **React StrictMode fires effects twice** — `AuthCallback.tsx` uses a `handled = useRef(false)` guard to prevent the second effect invocation from running after the URL has already changed. Never remove this guard.
-- **Always use the Axios `client`** for API calls in React components — never raw `fetch()`. Raw `fetch()` does not include the JWT header, causing silent 401 failures (the `.catch(() => {})` pattern swallows the error and leaves state null).
-- **JWT token in redirect URL must be URL-encoded** — the backend uses `urllib.parse.quote(token, safe='')` before embedding in the redirect URL.
-- **Use 302, not 307 for OAuth redirects** — 307 preserves HTTP method but can behave unexpectedly in some browser/proxy setups. All `RedirectResponse` in `auth.py` use `status_code=302`.
+- **React StrictMode fires effects twice** — `AuthCallback.tsx` uses a `handled = useRef(false)` guard. Never remove it.
+- **Always use the Axios `client`** — never raw `fetch()`. Raw `fetch()` does not include the JWT header.
+- **JWT token in redirect URL must be URL-encoded** — backend uses `urllib.parse.quote(token, safe='')`.
+- **Use 302, not 307 for OAuth redirects**.
+- **`verify-mfa` must return HTTP 400, not 401** — 401 triggers the Axios interceptor which redirects to `/login`, breaking the MFA flow.
 
 ---
 
 ## Database
 
-SQLite at `backend/health.db`. **Never delete health.db** — it contains Sandeep's weight logs, DEXA history, and synced activities.
+PostgreSQL. **Never delete the production database** — it contains user data.
 
-**Seeded on first `init_db()` call** (skipped if records already exist):
-- DEXA baseline: 2026-03-13, 181.5 lbs, 28.4% BF, 123.9 lbs lean mass, visceral fat 1.38 lbs
-- VO2 max baseline: 2026-03-13, 45.0
-- User profile: Sandeep Rao, DOB 1979-11-11, height 68 in, goal 18% BF + VO2 50 by 2026-12-31, 2200 kcal/day
+Schema changes go through Alembic:
+```bash
+# After editing models.py:
+cd backend && alembic revision --autogenerate -m "description"
+alembic upgrade head
+```
 
-**All 15 models:**
+`Base.metadata.create_all()` in `init_db()` is a safety net for fresh installs only.
+
+### 20 ORM models
+
+**Auth / user management:**
 
 | Table | Model | Notes |
 |-------|-------|-------|
-| `weight_logs` | `WeightLog` | Daily weight entries |
-| `dexa_scans` | `DexaScan` | Body composition scans |
+| `users` | `User` | UUID PK; `auth_provider`: google/magic_link; `is_admin`, `is_active`, `last_logout_at` |
+| `invite_codes` | `InviteCode` | `code` unique; FK `created_by`/`used_by` → users; `max_uses`, `use_count`, `expires_at` |
+| `magic_link_tokens` | `MagicLinkToken` | 15-min single-use; `used` bool |
+| `user_consents` | `UserConsent` | Privacy Policy consent record per user |
+| `audit_logs` | `AuditLog` | Actions: login, logout, account_created, data_export, account_delete_requested, admin_user_update, clear_conversations |
+
+**Health data (all have `user_id` FK → users.id):**
+
+| Table | Model | Notes |
+|-------|-------|-------|
+| `user_profile` | `UserProfile` | One row per user; `mcp_api_key` (unique, per-user); `hevy_api_key`; `onboarding_complete`; training/nutrition prefs |
+| `weight_logs` | `WeightLog` | Unique constraint: (user_id, date) |
+| `body_composition_logs` | `BodyCompositionLog` | BF%, lean mass, fat mass |
 | `vo2max_logs` | `Vo2MaxLog` | VO2 max measurements |
-| `strava_activities` | `StravaActivity` | Synced cardio |
-| `hevy_workouts` | `HevyWorkout` | Synced strength sessions |
-| `hevy_exercise_sets` | `HevyExerciseSet` | Individual sets |
+| `strava_activities` | `StravaActivity` | Composite PK: (id BigInt, user_id UUID) |
+| `hevy_workouts` | `HevyWorkout` | Composite PK: (id String, user_id UUID) |
+| `hevy_exercise_sets` | `HevyExerciseSet` | FK to (workout_id, user_id) composite |
 | `training_plans` | `TrainingPlan` | Claude-generated weekly plans |
 | `meal_plans` | `MealPlan` | Claude-generated weekly meal plans |
 | `nutrition_logs` | `NutritionLog` | Logged meals (source: "web" or "mcp") |
 | `health_insights` | `HealthInsight` | Claude-generated health reports |
-| `coach_conversations` | `CoachConversation` | Chat history — reused by both coach (session "default") and nutritionist (session "nutrition-default") |
-| `oauth_tokens` | `OAuthToken` | Strava OAuth tokens |
-| `garmin_daily_cache` | `GarminDailyCache` | Cached Garmin daily summaries |
-| `user_profile` | `UserProfile` | Goals, calorie target, preferences |
-| `weekly_checkins` | `WeeklyCheckin` | Weekly self-assessment: training/energy/sleep/diet/stress ratings + notes |
+| `coach_conversations` | `CoachConversation` | Chat history — session "default" (coach) or "nutrition-default" (nutritionist) |
+| `oauth_tokens` | `OAuthToken` | Unique constraint: (user_id, service) |
+| `daily_health_cache` | `DailyHealthCache` | Unique: (user_id, date, source); aliased as `GarminDailyCache` for backwards compat |
+| `supplements` | `Supplement` | User-defined supplement list |
+| `supplement_logs` | `SupplementLog` | Daily intake tracking |
+| `weekly_checkins` | `WeeklyCheckin` | Weekly self-assessment ratings + notes |
 
-To add a new table: add model to `database/models.py`, it is created automatically by `Base.metadata.create_all()` on startup.
+### DailyHealthCache (replaces GarminDailyCache)
+`GarminDailyCache = DailyHealthCache` is a backwards-compatible alias at the bottom of `models.py`. New code should use `DailyHealthCache`. The table has a `source` column (`garmin`/`google_fit`/`apple_health`/`manual`) and `sleep_score`, `deep_min`, `rem_min`, `light_min` columns.
 
-### NutritionLog model
+### UserProfile key fields (new in multi-tenant)
 ```python
-class NutritionLog(Base):
-    __tablename__ = "nutrition_logs"
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    date        = Column(Date, nullable=False, index=True)   # not unique — multiple meals per day
-    meal_type   = Column(String(20), nullable=False)         # breakfast/lunch/dinner/snack/dessert
-    name        = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)                # original text the user typed
-    kcal        = Column(Integer, nullable=False)
-    protein_g   = Column(Float, nullable=False)
-    carbs_g     = Column(Float, nullable=False)
-    fat_g       = Column(Float, nullable=False)
-    source      = Column(String(20), default="mcp")          # "web" or "mcp"
-    logged_at   = Column(DateTime, default=datetime.utcnow)
+mcp_api_key = Column(String(100), unique=True)   # per-user MCP auth key (auto-generated on account creation)
+hevy_api_key = Column(String(100))               # per-user Hevy REST API key
+training_days_strength/cardio/rest/mobility      # per-user training schedule
+dietary_preference                               # omnivore/vegetarian/vegan/pescatarian/other
+preferred_cuisines / preferred_exercises / exercises_to_avoid  # JSON arrays
+onboarding_complete = Column(Boolean, default=False)
+invite_code_used = Column(String(50))
+weekly_email_enabled = Column(Boolean, default=True)
 ```
 
 ---
@@ -162,27 +222,27 @@ Large JSON responses (training plans, meal plans) are split into **two sequentia
 Both calls share the same `system` prompt. Results are merged in `generate_training_plan()` / `generate_meal_plan()`. The helper `_call_claude_json()` strips markdown fences and raises `ValueError` on parse failure — routers catch this and return HTTP 500 with a user-readable message.
 
 ### System prompts (`backend/prompts/`)
-All prompts use Python f-string `{placeholder}` injection — edit the prompt files, not the service:
+All prompts are dynamically built from `UserProfile` fields — no more hardcoded names or constraints:
 
-| File | Prompt constant | Key constraints |
+| File | Prompt constant | Key behaviour |
 |------|----------------|----------------|
-| `coach_system.py` | `COACH_SYSTEM_PROMPT`, `COACH_CHAT_SYSTEM` | Tonal-only (cable machine, 0–200 lbs). Upper A = horizontal push + vertical pull. Upper B = incline/overhead + horizontal pull. Lower A = quad-dominant. Lower B = hip-dominant. Never repeat movement patterns between A and B. Cardio days include a 10–15 min core circuit (bodyweight / 10 lb medicine ball / 20 lb plate only). |
-| `nutrition_system.py` | `NUTRITION_SYSTEM_PROMPT`, `NUTRITIONIST_CHAT_SYSTEM` | Vegetarian + eggs. Bobby Parish philosophy. Cook-once rule. `NUTRITIONIST_CHAT_SYSTEM` injects today's food log + active meal plan summary + calorie target on every message. |
+| `coach_system.py` | `COACH_SYSTEM_PROMPT`, `COACH_CHAT_SYSTEM` | Equipment from `profile.training_device`; days from `training_days_*`; if device is "tonal" → Tonal-only constraint. Upper A = horizontal push + vertical pull. Upper B = incline/overhead + horizontal pull. Lower A = quad-dominant. Lower B = hip-dominant. Cardio days include 10–15 min core circuit. |
+| `nutrition_system.py` | `NUTRITION_SYSTEM_PROMPT`, `NUTRITIONIST_CHAT_SYSTEM` | Dietary type from `profile.dietary_preference`; cuisine prefs from `profile.preferred_cuisines`; Bobby Parish philosophy; cook-once rule. |
 | `health_advisor_system.py` | `HEALTH_ADVISOR_SYSTEM_PROMPT` | Peter Attia (Outlive) + Andrew Huberman framework. VO2 max as longevity predictor. |
 
 ### Claude functions in claude_service.py
 
 | Function | Description |
 |----------|-------------|
-| `generate_training_plan()` | Two-call split, context hash caching |
-| `generate_meal_plan()` | Two-call split (Mon–Thu / Fri–Sun) |
-| `chat_with_coach()` | Tool-use loop (up to 5 rounds), Hevy + Strava tools |
-| `chat_with_nutritionist()` | Single call; injects food log + meal plan as context |
+| `generate_training_plan(db, user_id)` | Two-call split, context hash caching, reads UserProfile |
+| `generate_meal_plan(db, user_id)` | Two-call split (Mon–Thu / Fri–Sun), reads UserProfile for dietary prefs |
+| `chat_with_coach(db, user_id, ...)` | Tool-use loop (up to 5 rounds), Hevy + Strava tools |
+| `chat_with_nutritionist(db, user_id, ...)` | Single call; injects food log + meal plan as context |
 | `parse_meal_description()` | Single call, returns JSON `{name, meal_type, kcal, protein_g, carbs_g, fat_g}` |
-| `generate_health_insights()` | Single large call with full Garmin data |
+| `generate_health_insights(db, user_id)` | Single large call with full Garmin data |
 
 ### Context hash caching (training plans)
-`generate_training_plan()` builds a hash from current stats + recent training + config string (`f"{s}s{c}c{r}r"`). If the hash matches the stored plan, the cached plan is returned. Changing strength/cardio/rest days forces a regeneration because the config string changes.
+`generate_training_plan()` builds a hash from current stats + recent training + config string. If you add new `UserProfile` fields to plan generation, include them in the hash string or stale cached plans will be returned.
 
 ---
 
@@ -198,7 +258,7 @@ All prompts use Python f-string `{placeholder}` injection — edit the prompt fi
 | **Nutritionist** | Multi-turn chat; `NUTRITIONIST_CHAT_SYSTEM` prompt has today's food log + meal plan injected as context |
 
 ### Food Log date computation
-The Food Log tab uses the currently selected `foodLogDate` state (ISO string, defaults to today). The Meal Plan tab day tabs use the **current calendar week's Monday** to compute dates — not the meal plan's `week_start`, which may be from a previous week.
+Uses the currently selected `foodLogDate` state (ISO string, defaults to today). The Meal Plan tab day tabs use the **current calendar week's Monday** — never from `parsedPlan.week_start`.
 
 ### Nutritionist chat storage
 Reuses `CoachConversation` table with `session_id = "nutrition-default"` (coach uses `"default"`).
@@ -207,42 +267,40 @@ Reuses `CoachConversation` table with `session_id = "nutrition-default"` (coach 
 
 ## MCP Remote Server
 
-`backend/mcp_server.py` exposes 14 tools over HTTP+SSE. Mounted in `main.py` before the JWT block (public routes, but API-key authenticated):
-
-```python
-app.add_route("/mcp/sse", sse_endpoint)
-app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
-```
+`backend/mcp_server.py` exposes 14 tools over HTTP+SSE. Auth uses per-user `mcp_api_key` stored in `UserProfile` — **not a global env var**.
 
 ### Auth
-`GET /mcp/sse?key=<MCP_API_KEY>` — key validated before stream is opened; 401 if wrong or missing.
+`GET /mcp/sse?key=<user_mcp_api_key>` — backend looks up `UserProfile` by `mcp_api_key`, sets `_current_user_id` ContextVar for the session duration. 401 if key missing or not found.
 
-### Claude Desktop setup (bypasses OAuth requirement)
+### User context in MCP tools
+All MCP tool handlers call `_get_user_id()` to retrieve the UUID from the `_current_user_id` ContextVar, then filter all DB queries by that UUID.
+
+### Claude Desktop setup
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "health-coach": {
       "command": "npx",
-      "args": ["-y", "mcp-remote@latest", "https://<host>/mcp/sse?key=<MCP_API_KEY>"]
+      "args": ["-y", "mcp-remote@latest", "https://<host>/mcp/sse?key=<USER_MCP_API_KEY>"]
     }
   }
 }
 ```
-Claude Desktop's "Add Custom Integration" UI requires OAuth 2.0 (MCP 2025-03-26 spec). Use `mcp-remote` via config file instead to use the API key SSE approach.
+The full URL with the per-user key is shown in **Settings → Mobile Access (MCP)**.
 
 ### 14 MCP tools
 
 | Tool | What it does |
 |------|-------------|
-| `log_meal` | INSERT into NutritionLog; Claude estimates macros before calling |
+| `log_meal` | INSERT into NutritionLog for current user |
 | `get_nutrition_log` | NutritionLog rows for a date + daily totals |
 | `get_meal_plan_for_day` | Active MealPlan meals for a given day name |
 | `get_todays_workout` | Active TrainingPlan exercises for today's weekday |
 | `get_recent_workouts` | HevyWorkout + HevyExerciseSet summary for last N days |
 | `get_exercise_stats` | Per-week max weight + estimated 1RM for a named exercise |
-| `get_health_metrics` | GarminDailyCache: steps, sleep, resting HR for last N days |
-| `get_health_summary` | Latest weight + DEXA + VO2 max + last 7 days Garmin |
+| `get_health_metrics` | DailyHealthCache: steps, sleep, resting HR for last N days |
+| `get_health_summary` | Latest weight + body comp + VO2 max + last 7 days Garmin |
 | `get_health_recommendations` | Latest HealthInsight content |
 | `log_weight` | Upsert into WeightLog |
 | `sync_data` | Calls hevy_service.sync_workouts() + strava_service.sync_activities() |
@@ -251,7 +309,7 @@ Claude Desktop's "Add Custom Integration" UI requires OAuth 2.0 (MCP 2025-03-26 
 | `submit_weekly_checkin` | Upsert into WeeklyCheckin table (ratings + notes) |
 
 ### Starlette compatibility
-Both endpoints return `_AlreadySentResponse` (a no-op `Response` subclass) because the MCP SDK writes the HTTP response directly via the ASGI `send` callable. Without this, Starlette tries to call `await None(scope, receive, send)` and raises a `TypeError`.
+Both endpoints return `_AlreadySentResponse` (a no-op `Response` subclass) because the MCP SDK writes the HTTP response directly via the ASGI `send` callable.
 
 ---
 
@@ -259,71 +317,39 @@ Both endpoints return `_AlreadySentResponse` (a no-op `Response` subclass) becau
 
 ### Strava
 - OAuth2 flow: `/api/strava/auth/url` (protected) → user redirects to Strava → Strava redirects to `/api/strava/auth/callback` (public)
-- **The Strava callback MUST be public** — it is called by Strava's servers after OAuth, no JWT is available. It is registered directly on `app` in `main.py` before the protected routers, NOT inside `strava.router`. If you ever move it back into `strava.router`, it will be JWT-protected and Strava OAuth will break.
-- Tokens stored in `OAuthToken` table (`service="strava"`), auto-refreshed
-- Syncs to `StravaActivity` table; accessible from dashboard activity feed
+- **The Strava callback encodes `user_id` in the `state` parameter** — the public callback reads `state` as a UUID to associate the token with the correct user. Never move this callback into a JWT-protected router.
+- Tokens stored in `OAuthToken` table (`service="strava"`), unique per user, auto-refreshed
+- Syncs to `StravaActivity` table (composite PK: activity_id + user_id)
 
-### Garmin (MFA-enabled)
-Garmin account has MFA and it **cannot be disabled**. Login uses a threading approach:
-1. `POST /api/garmin/login` → spawns login thread, returns `{"status": "mfa_required"}` or `{"status": "ok"}`
-2. Frontend shows OTP input; user submits `POST /api/garmin/verify-mfa` with `{"otp": "123456"}`
-3. Login thread receives OTP via threading event and completes authentication
-4. Session tokens persisted to directory set by `GARMIN_SESSION_DIR` env var (garth format) and reused on restart
+### Garmin
+Garmin **direct login has been removed** (`garmin_service.py` is now a stub). Data is imported via two endpoints — no credentials needed:
 
-If saved tokens exist and are valid, `login(tokenstore=)` restores the session silently — no MFA needed.
+- **`POST /api/garmin/paste-data`** — accepts `{"json_data": "<raw usersummary JSON>"}` pasted from Garmin Connect DevTools. Settings UI has a paste panel.
+- **`POST /api/garmin/push-data`** — API key authenticated endpoint for scripted imports (`scripts/garmin_push.py`).
 
-#### Garmin token persistence — critical for Railway
-**Always set `GARMIN_SESSION_DIR=/data/garmin_session` in Railway environment variables.** Without this, tokens are stored in the ephemeral container filesystem and wiped on every redeploy. The `/data` volume is Railway's persistent storage.
+`scripts/garmin_import_json.py` handles batch import from saved `.json` files.
 
-#### How `_get_client()` works
-`client.login(tokenstore=token_dir)` does three things: loads token files from disk, refreshes the OAuth2 token if expired, and sets `client.display_name` (required for URL construction — every garminconnect API URL includes `/displayName/`). **Never replace this with `garth.load()` directly** — that skips the display_name setup and all API calls will return 401.
+**Sleep extraction:** Uses `bodyBatteryActivityEventList` SLEEP event (started ≥18:00 prior evening) for full overnight duration. Falls back to `sleepingSeconds`.
 
-#### `verify-mfa` must return HTTP 400, not 401
-If MFA verification fails, return `400 Bad Request`. A 401 triggers the Axios interceptor which redirects to `/login`, breaking the MFA flow.
-
-#### Token import endpoint
-`POST /api/garmin/import-tokens` accepts `{"oauth1": {...}, "oauth2": {...}}` (raw garth token JSON) and writes them to `GARMIN_SESSION_DIR`. Useful for bootstrapping Railway when the IP is rate-limited:
-```bash
-curl -X POST https://<railway-host>/api/garmin/import-tokens \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d "{\"oauth1\": $(cat backend/garmin_session/oauth1_token.json), \"oauth2\": $(cat backend/garmin_session/oauth2_token.json)}"
-```
-
-#### Garmin account-level rate limiting (429)
-The 429 from `sso.garmin.com` is **account-level**, not IP-level. Switching to a mobile hotspot does NOT help — the server blocks the Garmin account itself. The only resolution is to contact Garmin support or wait for the block to lift. Do not suggest IP changes as a workaround.
-
-#### Manual data import (paste-data endpoint)
-Because Garmin auth is often unavailable, daily data can be imported by pasting the `usersummary` JSON from Garmin Connect DevTools:
-- `POST /api/garmin/paste-data` — accepts `{"json_data": "<raw JSON string>"}`, extracts `totalSteps`, `restingHeartRate`, and sleep duration, upserts into `GarminDailyCache`.
-- Settings UI has a paste panel for this.
-- `scripts/garmin_import_json.py` handles batch import from saved `.json` files.
-
-#### Sleep duration extraction — use bodyBattery SLEEP event, not sleepingSeconds
-`sleepingSeconds` in the daily summary JSON only counts sleep within the midnight-to-midnight window of that calendar date. This misses the pre-midnight portion of the overnight sleep (e.g., sleep starting at 9:30 PM is truncated at midnight for the current day's sum). The `_extract_sleep_hours()` helper in `routers/garmin.py` and `garmin_import_json.py` instead reads `bodyBatteryActivityEventList` for the SLEEP event that started in the prior evening (≥18:00) and uses its full `durationInMilliseconds`. Falls back to `sleepingSeconds` if no suitable event exists.
+**Garmin account-level rate limiting (429):** Account-level, not IP-level. Do not suggest IP changes. Paste-data import is the workaround.
 
 ### Hevy
-Uses direct REST API calls to `api.hevyapp.com/v1` via `backend/services/hevy_api_client.py`:
-- `HevyAPIClient` makes httpx calls with `api-key` header
-- Methods: `get_workouts()`, `get_exercises()`, `get_exercise_progress()`, `get_routines()`
-- Config: `HEVY_API_KEY` in `.env`
-- The old `hevy_mcp_client.py` (Node.js subprocess) was replaced because Node.js is not available on Railway
+Per-user API key stored in `UserProfile.hevy_api_key` (set during onboarding or Settings). Uses `HevyAPIClient` with httpx calls to `api.hevyapp.com/v1`.
 
 ---
 
 ## Frontend Patterns
 
 ### Always use the Axios client — never raw fetch()
-Every API call in every React component must use `import client from "../api/client"` — not the native `fetch()` API. The Axios client (`src/api/client.ts`) attaches `Authorization: Bearer <token>` to every request and redirects to `/login` on 401. Raw `fetch()` calls will silently return 401 and leave component state null.
+Every API call must use `import client from "../api/client"`. Raw `fetch()` does not include the JWT header and will silently return 401.
 
 ### Markdown rendering
-All Claude-generated content (training plans, health insights, chat responses) is rendered via `MarkdownRenderer.tsx` which uses `react-markdown` + `remark-gfm`. The `remark-gfm` plugin is **required** for tables — without it, pipe characters render as raw text.
+All Claude-generated content is rendered via `MarkdownRenderer.tsx` (`react-markdown` + `remark-gfm`). `remark-gfm` is **required** for tables.
 
-### API clients
-Each domain has its own file in `src/api/`. The base client (`client.ts`) points to `http://localhost:8000`. When adding a new endpoint, add it to the corresponding API file, not inline in the component.
-
-### Page-level state
-Pages manage their own loading/error/data state with `useState` + `useEffect`. There is no global fetch cache. Zustand (`appStore.ts`) is available for cross-page state if needed.
+### ProtectedRoute behaviour
+- No `auth_token` in localStorage → redirect to `/login`
+- Token present but `onboarding_complete=false` in JWT → redirect to `/onboarding`
+- Admin routes (`/admin`) checked by the Admin page itself via `is_admin` from JWT
 
 ### Adding a new page
 1. Create `frontend/src/pages/NewPage.tsx`
@@ -343,85 +369,124 @@ GOOGLE_CLIENT_SECRET=your-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
 JWT_SECRET_KEY=<random 32-byte hex>
 JWT_EXPIRE_DAYS=30
-ALLOWED_EMAIL=your.email@gmail.com     # leave empty to allow any Google account
+
+# Multi-tenant admin bootstrap (required)
+ADMIN_EMAIL=your.email@gmail.com   # First login gets is_admin=True; no invite code needed
+# Legacy single-user gate — ignored when ADMIN_EMAIL is set
+ALLOWED_EMAIL=
 
 ANTHROPIC_API_KEY=sk-ant-...           # Required for all AI features
+
 STRAVA_CLIENT_ID=                      # Required for Strava sync
 STRAVA_CLIENT_SECRET=
 STRAVA_REDIRECT_URI=http://localhost:8000/api/strava/auth/callback
-GARMIN_EMAIL=                          # Required for sleep/HRV/body battery data
-GARMIN_PASSWORD=
-GARMIN_SESSION_DIR=./garmin_session    # Railway: /data/garmin_session
-HEVY_API_KEY=                          # Required for strength training data in Coach chat
-MCP_API_KEY=                           # Required for Claude mobile/desktop MCP integration
-RESEND_API_KEY=                        # Required for PDF email delivery
-DATABASE_URL=sqlite:///./health.db
+
+RESEND_API_KEY=                        # Required for magic link auth + email delivery
+RESEND_FROM_EMAIL=HealthCoach <onboarding@resend.dev>
+
+# Database — PostgreSQL required
+DATABASE_URL=postgresql://localhost/health_coach_dev
+
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8000
 CORS_ORIGINS=http://localhost:5173
 FRONTEND_URL=http://localhost:5173
+
+# MCP push-data backwards-compat only — per-user keys in UserProfile are primary
+MCP_API_KEY=
 ```
 
-`GET /api/settings/status` returns which integrations are configured + the `mcp_api_key` (shown in Settings page under Mobile Access).
+**Removed env vars (no longer in use):**
+- `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_SESSION_DIR` — Garmin direct login was removed; use paste-data or push-data
+- `HEVY_API_KEY` — per-user; stored in `UserProfile.hevy_api_key`, set during onboarding or Settings
+- `SMTP_HOST/PORT/USER/PASSWORD`, `EMAIL_FROM`, `EMAIL_RECIPIENTS_*` — SMTP was replaced by Resend
+
+`GET /api/settings/status` returns integration status + the caller's `mcp_api_key` from their UserProfile. Auto-generates a key if none exists.
 
 ---
 
 ## Weekly Summary Email
 
-`backend/services/weekly_summary_service.py` → `send_weekly_summary()`:
-- Gathers last 7 days of WeightLog, HevyWorkout, NutritionLog, GarminDailyCache
-- Computes: weight avg + trend vs prior week, workout list + duration, days logged + avg kcal/protein vs target, avg steps/sleep/resting HR
-- Builds inline HTML email and sends via `send_html_email()` in `email_service.py`
+`backend/services/weekly_summary_service.py` → `send_weekly_summary_all_users()`:
+- Iterates all active users with `weekly_email_enabled=True`
+- For each user: gathers last 7 days of WeightLog, HevyWorkout, NutritionLog, DailyHealthCache
+- Computes weight avg + trend, workout list + duration, days logged + avg kcal/protein vs target, avg steps/sleep/resting HR
+- Sends HTML email via Resend
 
-**Scheduler**: `_start_scheduler()` in `main.py` runs APScheduler (`BackgroundScheduler`) on startup. Fires every Sunday 19:30 ET (`CronTrigger(day_of_week="sun", hour=19, minute=30, timezone="America/New_York")`). Requires `apscheduler==3.10.4` in `requirements.txt`.
+**Scheduler**: `_start_scheduler()` in `main.py` fires every Sunday 19:30 ET.
 
-**Manual trigger**: `POST /api/email/weekly-summary` (JWT required). Swagger's Authorize button won't work because `verify_token` uses `Header(None)` not `HTTPBearer`. Use curl:
-```bash
-curl -X POST https://<host>/api/email/weekly-summary \
-  -H "Authorization: Bearer <token>"
-```
-JWT token is in browser DevTools → Application → Local Storage → `auth_token`.
+**Manual trigger**: `POST /api/email/weekly-summary` (JWT required). JWT is in DevTools → Application → Local Storage → `auth_token`.
+
+---
+
+## Admin Panel
+
+`GET /api/admin/users` — list all users with profile summaries  
+`PATCH /api/admin/users/{id}` — toggle `is_active` or `is_admin`  
+`GET /api/admin/audit-log` — recent audit log entries  
+`GET /api/admin/stats` — usage stats (total users, onboarded, plans generated, integrations connected)  
+
+All admin routes use `require_admin()` dependency. The `/admin` page is only shown in the sidebar for users where `is_admin=true` in the JWT.
+
+**Invite code management** (also admin-only, under `auth.router`):  
+`POST /api/auth/invite-codes` — create a code  
+`GET /api/auth/invite-codes` — list all codes  
+
+---
+
+## Account & Privacy (GDPR)
+
+`GET /api/account/data-export` — ZIP of all user data as JSON files (excludes `hevy_api_key` and `mcp_api_key`)  
+`DELETE /api/account` — soft-delete (sets `deleted_at`, `is_active=False`); hard purge is manual after 30 days  
+`DELETE /api/account/conversations` — wipe all coach + nutritionist chat history  
 
 ---
 
 ## Key Constraints — Do Not Violate
 
-1. **Tonal only**: Every exercise in a generated training plan must be performable on the Tonal smart gym (cable/pulley system). No free barbells, no dumbbells, no machines not available on Tonal.
-2. **Vegetarian + eggs**: Meal plans must never include meat or seafood.
-3. **max_tokens=8192**: This is the model's hard limit. Never lower it. If responses still truncate, split the prompt further.
-4. **Two-call pattern**: Do not try to generate a full 7-day plan or full training week in a single API call — it will truncate.
-5. **Cook-once rule**: In meal plans, Tuesday–Sunday lunch must be the previous night's dinner (prefixed with "Leftover: "). Monday lunch is standalone.
-6. **Context hash**: If you add new fields to the training plan generation (e.g., new user prefs), include them in the hash string or cached stale plans will be returned.
-7. **Don't mock the DB**: The SQLite database contains real user data. Integration tests and dev work should use the real DB.
-8. **Strava callback stays public**: `/api/strava/auth/callback` must never be inside a JWT-protected router. Keep it registered directly on `app` in `main.py`.
-9. **Always use Axios client**: Never use raw `fetch()` in React components. The Axios client is the only way to ensure the JWT is sent.
-10. **Food Log dates use current week**: The Food Log tab computes dates from the current calendar week's Monday — never from `parsedPlan.week_start`, which may be from a previous week.
-11. **Core exercises on cardio days**: Cardio days must include a 10–15 min core circuit using only bodyweight, a 10 lb medicine ball, or a 20 lb plate. No Tonal cable exercises in the core block.
-12. **Garmin rate limit is account-level**: The Garmin 429 is account-level, not IP-based. Do not suggest changing IP/hotspot as a fix. Use the paste-data import instead.
+1. **Per-user data isolation**: Every DB query on a health data table **must** filter by `user_id`. Never omit it.
+2. **MCP API key is per-user**: Looked up from `UserProfile.mcp_api_key`. `_current_user_id` ContextVar carries the user across MCP tool calls.
+3. **Tonal-only when device is "tonal"**: Only apply the Tonal equipment constraint when `profile.training_device == "tonal"`. Other users can use any gym.
+4. **max_tokens=8192**: This is the model's hard limit. Never lower it.
+5. **Two-call pattern**: Do not generate a full 7-day plan or full training week in a single API call — it will truncate.
+6. **Cook-once rule**: In meal plans, Tuesday–Sunday lunch must be the previous night's dinner (prefixed with "Leftover: "). Monday lunch is standalone.
+7. **Context hash**: If you add new UserProfile fields to plan generation, include them in the hash or stale plans will be returned.
+8. **Don't mock the DB**: The database contains real user data. Integration tests and dev work should use the real DB.
+9. **Strava callback stays public**: `/api/strava/auth/callback` must never be inside a JWT-protected router. User identity comes from the `state` param (UUID).
+10. **Always use Axios client**: Never use raw `fetch()` in React components.
+11. **Food Log dates use current week**: The Food Log tab computes dates from the current calendar week's Monday — never from `parsedPlan.week_start`.
+12. **Core exercises on cardio days**: Cardio days include a 10–15 min core circuit using only bodyweight, a 10 lb medicine ball, or a 20 lb plate.
+13. **Garmin rate limit is account-level**: The 429 from Garmin is account-level. Do not suggest changing IP/hotspot. Use paste-data import.
+14. **Alembic for schema changes**: Never use `Base.metadata.create_all()` as the migration path for an existing database. Always create an Alembic migration.
+15. **Admin bootstrap**: The `ADMIN_EMAIL` user needs no invite code on first login. All other new users require one.
 
 ---
 
 ## Adding New Features
 
-### API Integration
-When working with external APIs (Garmin, Hevy, Strava), always inspect the actual API response structure before writing parsing code. Use a test call first, print the response, then build the handler.
-
 ### New API endpoint
 1. Add Pydantic schema to `backend/schemas/<domain>.py`
-2. Add route to `backend/routers/<domain>.py` (HTTP logic only)
+2. Add route to `backend/routers/<domain>.py` (HTTP logic only); use `get_user_id` dependency to scope queries
 3. Add business logic to `backend/services/<domain>_service.py` or `claude_service.py`
 4. Add API function to `frontend/src/api/<domain>.ts`
 5. Add TypeScript type to `frontend/src/types/index.ts` if needed
-6. If the endpoint must be public (e.g., called by a third-party OAuth redirect), register it directly on `app` in `main.py` before the `_auth` block — do NOT add it to a router that uses `dependencies=_auth`
+6. If the endpoint must be public, register directly on `app` in `main.py` before the `_auth` block
 
 ### New Claude feature
 1. Add/edit system prompt in `backend/prompts/`
-2. Add a function to `backend/services/claude_service.py` following the `_call_claude_json()` pattern
+2. Add function to `backend/services/claude_service.py` following the `_call_claude_json()` pattern
 3. If response is large, split into two calls and merge results
 4. Always validate that `stop_reason != "max_tokens"` — raise `ValueError` if it does
+5. Pull user preferences from `UserProfile` rather than hardcoding them
 
 ### New MCP tool
 1. Add tool definition to `list_tools()` in `mcp_server.py`
-2. Add handler function `_<tool_name>(args)` that uses `SessionLocal()` / `try: ... / finally: db.close()`
-3. Add dispatch case to `call_tool()` in `mcp_server.py`
-4. If the tool calls Claude API (slow), wrap with `await asyncio.to_thread(...)` to avoid blocking the event loop
+2. Add handler `_<tool_name>(args)` using `_get_user_id()` to scope all DB queries
+3. Add dispatch case to `call_tool()`
+4. If the tool calls Claude API (slow), wrap with `await asyncio.to_thread(...)`
+
+### Schema change
+1. Edit `backend/database/models.py`
+2. `cd backend && alembic revision --autogenerate -m "description"`
+3. Review the generated migration in `alembic/versions/`
+4. `alembic upgrade head`

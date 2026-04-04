@@ -32,8 +32,13 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const user = getStoredUser();
   const location = useLocation();
   if (!user) return <Navigate to="/login" replace />;
+  // New users who haven't completed onboarding must do so before accessing the app
   if (!user.onboarding_complete && location.pathname !== "/onboarding") {
     return <Navigate to="/onboarding" replace />;
+  }
+  // Already-onboarded users cannot revisit /onboarding — use Settings to edit profile
+  if (user.onboarding_complete && location.pathname === "/onboarding") {
+    return <Navigate to="/" replace />;
   }
   return <>{children}</>;
 }

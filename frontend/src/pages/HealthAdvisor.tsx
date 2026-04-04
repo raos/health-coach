@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HeartPulse, RefreshCw, Brain, Plus, Moon, Footprints, Activity } from "lucide-react";
+import { HeartPulse, RefreshCw, Brain, Moon, Footprints, Activity } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
@@ -12,8 +12,7 @@ import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestInsights, generateInsights } from "../api/health";
 import { getSleepRange, getStepsRange, getRestingHrRange } from "../api/garmin";
 import type { SleepDay, StepsDay, RestingHrDay } from "../api/garmin";
-import { getDexaHistory } from "../api/dexa";
-import type { HealthInsight, DexaScan } from "../types";
+import type { HealthInsight } from "../types";
 
 const DAYS_OPTIONS = [7, 14, 30, 60];
 
@@ -36,7 +35,6 @@ function GarminPlaceholder({ message }: { message: string }) {
 
 export default function HealthAdvisor() {
   const [insight, setInsight] = useState<HealthInsight | null>(null);
-  const [dexaHistory, setDexaHistory] = useState<DexaScan[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -49,10 +47,9 @@ export default function HealthAdvisor() {
   const [garminError, setGarminError] = useState("");
 
   useEffect(() => {
-    Promise.all([getLatestInsights(), getDexaHistory()])
-      .then(([ins, dexa]) => {
+    Promise.all([getLatestInsights()])
+      .then(([ins]) => {
         if (ins) setInsight(ins);
-        setDexaHistory(dexa);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -262,72 +259,6 @@ export default function HealthAdvisor() {
             )}
           </div>
 
-          {/* ── DEXA History ───────────────────────────────────────────── */}
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <HeartPulse className="w-4 h-4 text-purple-600" />
-                DEXA Scan History
-              </h3>
-              <a href="/settings" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                <Plus className="w-3 h-3" /> Log New Scan
-              </a>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <th className="text-left pb-2 font-medium">Date</th>
-                    <th className="text-right pb-2 font-medium">Weight</th>
-                    <th className="text-right pb-2 font-medium">Body Fat</th>
-                    <th className="text-right pb-2 font-medium">Lean Mass</th>
-                    <th className="text-right pb-2 font-medium">Visceral Fat</th>
-                    <th className="text-right pb-2 font-medium">Facility</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dexaHistory.map((scan) => (
-                    <tr key={scan.id} className="border-b border-gray-50 dark:border-gray-700">
-                      <td className="py-2 font-medium text-gray-900 dark:text-gray-100">{format(parseISO(scan.scan_date), "MMM d, yyyy")}</td>
-                      <td className="py-2 text-right text-gray-700 dark:text-gray-300">{scan.total_weight_lbs} lbs</td>
-                      <td className="py-2 text-right">
-                        <span className={`font-medium ${scan.body_fat_pct > 25 ? "text-orange-600" : scan.body_fat_pct > 20 ? "text-yellow-600" : "text-green-600"}`}>
-                          {scan.body_fat_pct}%
-                        </span>
-                      </td>
-                      <td className="py-2 text-right text-gray-700 dark:text-gray-300">{scan.lean_mass_lbs} lbs</td>
-                      <td className="py-2 text-right text-gray-500 dark:text-gray-400">{scan.visceral_fat_lbs ? `${scan.visceral_fat_lbs} lbs` : "—"}</td>
-                      <td className="py-2 text-right text-gray-400 dark:text-gray-500 text-xs">{scan.facility || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ── Key metrics ────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 rounded-xl p-4">
-              <p className="text-xs text-purple-600 dark:text-purple-400 font-medium uppercase tracking-wide">Current BF%</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.body_fat_pct ?? 28.4}%</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 18% by Dec 2026</p>
-            </div>
-            <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded-xl p-4">
-              <p className="text-xs text-green-600 dark:text-green-400 font-medium uppercase tracking-wide">VO₂ Max</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">45</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 50+ by Dec 2026</p>
-            </div>
-            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4">
-              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium uppercase tracking-wide">Lean Mass</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.lean_mass_lbs ?? 123.9} lbs</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Goal: 130+ lbs</p>
-            </div>
-            <div className="bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 rounded-xl p-4">
-              <p className="text-xs text-orange-600 dark:text-orange-400 font-medium uppercase tracking-wide">Visceral Fat</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{dexaHistory[0]?.visceral_fat_lbs ?? 1.38} lbs</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Target: &lt;0.60 lbs</p>
-            </div>
-          </div>
 
           {/* ── AI Insights ────────────────────────────────────────────── */}
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">

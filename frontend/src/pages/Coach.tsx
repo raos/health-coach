@@ -6,6 +6,7 @@ import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestTrainingPlan, generateTrainingPlan, emailTrainingPlan, chatWithCoach } from "../api/coach";
+import { getProfile } from "../api/profile";
 import { pushRoutine } from "../api/hevy";
 import type { PushRoutineResult } from "../api/hevy";
 import type { TrainingPlan } from "../types";
@@ -178,8 +179,8 @@ export default function Coach() {
   const [emailing, setEmailing] = useState(false);
   const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
-  const [strengthDays, setStrengthDays] = useState(4);
-  const [cardioDays, setCardioDays] = useState(2);
+  const [strengthDays, setStrengthDays] = useState(3);
+  const [cardioDays, setCardioDays] = useState(3);
   const [restDays, setRestDays] = useState(1);
 
   const totalDays = strengthDays + cardioDays + restDays;
@@ -196,15 +197,20 @@ export default function Coach() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getLatestTrainingPlan()
-      .then((p) => {
-        if (p) {
-          setPlan(p);
-          try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      getLatestTrainingPlan().catch(() => null),
+      getProfile().catch(() => null),
+    ]).then(([p, profile]) => {
+      if (p) {
+        setPlan(p);
+        try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
+      }
+      if (profile) {
+        if (profile.training_days_strength) setStrengthDays(profile.training_days_strength);
+        if (profile.training_days_cardio != null) setCardioDays(profile.training_days_cardio);
+        if (profile.training_days_rest != null) setRestDays(profile.training_days_rest);
+      }
+    }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -262,19 +268,21 @@ export default function Coach() {
     <PageWrapper
       title="Personal Coach"
       subtitle=""
-      actions={
+    >
+      {/* Full-width controls bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 mb-6">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg">
-            <DayCounter label="Strength" value={strengthDays} onDec={() => clampDay(setStrengthDays, strengthDays - 1, 2, 6)} onInc={() => clampDay(setStrengthDays, strengthDays + 1, 2, 6)} color="text-blue-600" />
-            <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
-            <DayCounter label="Cardio" value={cardioDays} onDec={() => clampDay(setCardioDays, cardioDays - 1, 0, 4)} onInc={() => clampDay(setCardioDays, cardioDays + 1, 0, 4)} color="text-green-600" />
-            <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
-            <DayCounter label="Rest" value={restDays} onDec={() => clampDay(setRestDays, restDays - 1, 1, 3)} onInc={() => clampDay(setRestDays, restDays + 1, 1, 3)} color="text-orange-500" />
-            <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
-            <span className={`text-xs font-medium ${totalDays === 7 ? "text-gray-400 dark:text-gray-500" : "text-red-500"}`}>
-              {totalDays}/7 days
-            </span>
-          </div>
+          <DayCounter label="Strength" value={strengthDays} onDec={() => clampDay(setStrengthDays, strengthDays - 1, 2, 6)} onInc={() => clampDay(setStrengthDays, strengthDays + 1, 2, 6)} color="text-blue-600" />
+          <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
+          <DayCounter label="Cardio" value={cardioDays} onDec={() => clampDay(setCardioDays, cardioDays - 1, 0, 4)} onInc={() => clampDay(setCardioDays, cardioDays + 1, 0, 4)} color="text-green-600" />
+          <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
+          <DayCounter label="Rest" value={restDays} onDec={() => clampDay(setRestDays, restDays - 1, 1, 3)} onInc={() => clampDay(setRestDays, restDays + 1, 1, 3)} color="text-orange-500" />
+          <div className="w-px h-8 bg-gray-200 dark:bg-gray-600" />
+          <span className={`text-xs font-medium ${totalDays === 7 ? "text-gray-400 dark:text-gray-500" : "text-red-500"}`}>
+            {totalDays}/7 days
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
           <button
             onClick={handleGenerate}
             disabled={generating || totalDays !== 7}
@@ -292,8 +300,8 @@ export default function Coach() {
             {emailing ? "Sending..." : emailStatus || "Email Plan"}
           </button>
         </div>
-      }
-    >
+      </div>
+
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       {/* Strength Progress */}
