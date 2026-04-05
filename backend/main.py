@@ -25,6 +25,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
+    import logging as _logging
+    _logging.getLogger(__name__).info(
+        "Startup config — telegram_bot_username=%r telegram_bot_token_set=%s",
+        settings.telegram_bot_username,
+        bool(settings.telegram_bot_token),
+    )
     init_db()
     _start_scheduler()
 
