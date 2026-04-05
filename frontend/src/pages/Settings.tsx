@@ -59,6 +59,7 @@ export default function Settings() {
       .then((r) => setStravaStatus(r.data))
       .catch(() => setStravaStatus({ connected: false }));
 
+
     client.get("/api/settings/status")
       .then((r) => setIntegrationStatus(r.data))
       .catch(() => {});

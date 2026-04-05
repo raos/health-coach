@@ -52,9 +52,10 @@ def export_data(
         profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
         if profile:
             zf.writestr("profile.json", json.dumps(
-                {c.name: str(getattr(profile, c.name)) if hasattr(getattr(profile, c.name), "isoformat") else getattr(profile, c.name)
+                {c.name: getattr(profile, c.name)
                  for c in profile.__table__.columns if c.name not in ("hevy_api_key", "mcp_api_key")},
-                indent=2
+                indent=2,
+                default=str,
             ))
 
         add("weight_logs", db.query(WeightLog).filter(WeightLog.user_id == user_id).all())

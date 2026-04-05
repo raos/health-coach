@@ -255,13 +255,11 @@ def push_data(
     Authenticated with the MCP API key (?key=<MCP_API_KEY>) — no Garmin login needed.
     """
     from config import settings
-    # Look up user by per-user MCP API key; fall back to global key for backwards compat
     from database.models import UserProfile as UP
     profile = db.query(UP).filter(UP.mcp_api_key == key).first()
     if not profile:
         if not settings.mcp_api_key or key != settings.mcp_api_key:
             raise HTTPException(status_code=401, detail="Invalid API key")
-        # Global key — default to admin user (backwards compat)
         from database.models import User
         admin_user = db.query(User).filter(User.is_admin == True, User.is_active == True).first()
         push_user_id = admin_user.id if admin_user else None
