@@ -7,7 +7,8 @@ import type { UserProfile } from "../types";
 
 export default function Settings() {
   const [stravaStatus, setStravaStatus] = useState<{ connected: boolean; athlete_name?: string } | null>(null);
-  const [integrationStatus, setIntegrationStatus] = useState<{ hevy: boolean; anthropic: boolean; mcp_api_key?: string } | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<{ hevy: boolean; anthropic: boolean; mcp_api_key?: string; telegram_connected?: boolean; telegram_bot_username?: string } | null>(null);
+  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; username: string | null; connected_at: string | null } | null>(null);
   const [mcpCopied, setMcpCopied] = useState(false);
 
   const [showPasteData, setShowPasteData] = useState(false);
@@ -63,6 +64,10 @@ export default function Settings() {
     client.get("/api/settings/status")
       .then((r) => setIntegrationStatus(r.data))
       .catch(() => {});
+
+    client.get("/api/telegram/status")
+      .then((r) => setTelegramStatus(r.data))
+      .catch(() => setTelegramStatus({ connected: false, username: null, connected_at: null }));
 
     getProfile()
       .then((p) => {
@@ -166,6 +171,12 @@ export default function Settings() {
     if (!confirm("Disconnect Hevy? Your synced workouts will remain but no new sync will be possible until you reconnect.")) return;
     await client.delete("/api/hevy/disconnect");
     setIntegrationStatus((prev) => prev ? { ...prev, hevy: false } : prev);
+  }
+
+  async function disconnectTelegram() {
+    if (!confirm("Unlink your Telegram account?")) return;
+    await client.delete("/api/telegram/disconnect");
+    setTelegramStatus({ connected: false, username: null, connected_at: null });
   }
 
   async function generateMcpKey() {
@@ -472,6 +483,58 @@ export default function Settings() {
                   >
                     {mcpGenerating ? "Generating…" : "Generate Key"}
                   </button>
+                </div>
+              )}
+            </div>
+
+            {/* Telegram */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">T</div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Telegram Bot</p>
+                    {telegramStatus?.connected && telegramStatus.username ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">@{telegramStatus.username}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Chat with your health data via Telegram</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {telegramStatus?.connected ? (
+                    <>
+                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-400 px-2 py-1 rounded-full">
+                        <Check className="w-3 h-3" /> Connected
+                      </span>
+                      <button
+                        onClick={disconnectTelegram}
+                        className="px-3 py-1.5 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900 dark:hover:text-red-300 transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    </>
+                  ) : integrationStatus?.telegram_bot_username ? (
+                    <a
+                      href={`https://t.me/${integrationStatus.telegram_bot_username}?start=${integrationStatus?.mcp_api_key ?? ""}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600"
+                    >
+                      Open Bot <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ) : (
+                    <span className="text-xs text-gray-400 dark:text-gray-500">Bot not configured</span>
+                  )}
+                </div>
+              </div>
+              {!telegramStatus?.connected && integrationStatus?.telegram_bot_username && integrationStatus?.mcp_api_key && (
+                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                  <p className="text-xs text-blue-800 dark:text-blue-300 font-medium mb-1">How to connect:</p>
+                  <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside">
+                    <li>Click <b>Open Bot</b> above — your account links automatically</li>
+                    <li>Or search <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">@{integrationStatus.telegram_bot_username}</code> and send: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">/connect {integrationStatus.mcp_api_key}</code></li>
+                  </ol>
                 </div>
               )}
             </div>
