@@ -54,7 +54,7 @@ async def _tg(method: str, **kwargs) -> dict:
 async def send_message(chat_id: int, text: str) -> None:
     """Send a message, splitting at 4096-char limit if needed."""
     for chunk in _split_message(text):
-        await _tg("sendMessage", chat_id=chat_id, text=chunk, parse_mode="HTML")
+        await _tg("sendMessage", chat_id=chat_id, text=chunk)
 
 
 async def send_typing(chat_id: int) -> None:
@@ -112,11 +112,11 @@ async def handle_start(chat_id: int, args: str) -> None:
                 profile.telegram_connected_at = datetime.utcnow()
                 db.commit()
                 await send_message(chat_id,
-                    "✅ <b>Connected!</b> Your Telegram is linked to your Health Coach account.\n\n"
+                    "✅ Connected! Your Telegram is linked to your Health Coach account.\n\n"
                     "Try asking:\n"
-                    "• <i>What's my workout today?</i>\n"
-                    "• <i>Log lunch — rice, dal, 2 eggs, ~600 kcal</i>\n"
-                    "• <i>How did I sleep this week?</i>\n\n"
+                    "• What's my workout today?\n"
+                    "• Log lunch — rice, dal, 2 eggs, ~600 kcal\n"
+                    "• How did I sleep this week?\n\n"
                     "Use /help for all commands."
                 )
                 return
@@ -124,12 +124,12 @@ async def handle_start(chat_id: int, args: str) -> None:
             db.close()
 
     await send_message(chat_id,
-        "<b>Welcome to Health Coach!</b>\n\n"
+        "Welcome to Health Coach!\n\n"
         "To get started, link your account:\n"
         "1. Open the Health Coach web app\n"
-        "2. Go to <b>Settings → Telegram</b>\n"
-        "3. Click <b>Open Bot</b> (auto-connects), or send:\n"
-        "   <code>/connect your-mcp-api-key</code>"
+        "2. Go to Settings → Telegram\n"
+        "3. Click Open Bot (auto-connects), or send:\n"
+        "   /connect your-mcp-api-key"
     )
 
 
@@ -137,8 +137,8 @@ async def handle_connect(chat_id: int, username: Optional[str], mcp_key: str) ->
     """/connect <mcp_api_key>"""
     if not mcp_key.strip():
         await send_message(chat_id,
-            "Usage: <code>/connect your-mcp-api-key</code>\n"
-            "Find your key in <b>Settings → Mobile Access</b>."
+            "Usage: /connect your-mcp-api-key\n"
+            "Find your key in Settings → Mobile Access."
         )
         return
     db = SessionLocal()
@@ -175,13 +175,13 @@ async def handle_disconnect(chat_id: int) -> None:
 
 async def handle_help(chat_id: int) -> None:
     await send_message(chat_id,
-        "<b>Health Coach Bot</b>\n\n"
-        "<b>Commands:</b>\n"
-        "/connect &lt;key&gt; — Link your account\n"
+        "Health Coach Bot\n\n"
+        "Commands:\n"
+        "/connect <key> — Link your account\n"
         "/disconnect — Unlink your account\n"
         "/status — Check connection status\n"
         "/help — Show this message\n\n"
-        "<b>Just chat naturally:</b>\n"
+        "Just chat naturally:\n"
         "• Log weight, meals, supplements\n"
         "• Ask about workouts, nutrition, health metrics\n"
         "• Get today's meal plan or workout\n"
