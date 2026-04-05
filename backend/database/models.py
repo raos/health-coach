@@ -297,6 +297,10 @@ class UserProfile(Base):
     weekly_email_cc = Column(String(200), nullable=True)
     onboarding_complete = Column(Boolean, default=False)
     invite_code_used = Column(String(50), nullable=True)
+    # Telegram Bot
+    telegram_chat_id = Column(BigInteger, nullable=True, unique=True, index=True)
+    telegram_username = Column(String(100), nullable=True)
+    telegram_connected_at = Column(DateTime, nullable=True)
     # Legacy recipients (kept for compat)
     training_plan_recipients = Column(Text, nullable=True)
     meal_plan_recipients = Column(Text, nullable=True)

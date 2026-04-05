@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.engine import init_db, get_db
 from dependencies import verify_token, get_user_id
-from routers import weight, body_composition, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin, account
+from routers import weight, body_composition, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin, account, telegram
 from routers import auth
 
 app = FastAPI(
@@ -84,6 +84,9 @@ app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
 from routers.garmin import push_data as garmin_push_data
 app.add_api_route("/api/garmin/push-data", garmin_push_data, methods=["POST"], tags=["garmin"])
 
+# Telegram webhook — called by Telegram's servers, no JWT
+app.include_router(telegram.router)
+
 # ── Protected routes (JWT required) ─────────────────────────────────────────
 _auth = [Depends(verify_token)]
 app.include_router(weight.router, dependencies=_auth)
@@ -123,4 +126,6 @@ def settings_status(
         "hevy": bool(profile.hevy_api_key if profile else None),
         "anthropic": bool(settings.anthropic_api_key),
         "mcp_api_key": profile.mcp_api_key if profile else None,
+        "telegram_connected": bool(profile.telegram_chat_id if profile else None),
+        "telegram_bot_username": settings.telegram_bot_username,
     }

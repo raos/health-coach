@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # Per-user keys are stored in UserProfile.mcp_api_key and are the primary auth mechanism.
     mcp_api_key: str = ""
 
+    # Telegram Bot
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""   # e.g. "ai_healthcoachbot" (no @)
+    telegram_webhook_secret: str = "" # random string set in setWebhook; validated on every webhook POST
+
     # Email (Resend)
     resend_api_key: str = ""
     resend_from_email: str = "HealthCoach <onboarding@resend.dev>"
