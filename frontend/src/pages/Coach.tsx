@@ -6,7 +6,7 @@ import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
 import MarkdownRenderer from "../components/shared/MarkdownRenderer";
 import { getLatestTrainingPlan, generateTrainingPlan, emailTrainingPlan, chatWithCoach } from "../api/coach";
-import { getProfile } from "../api/profile";
+import { getProfile, updateProfile } from "../api/profile";
 import { pushRoutine } from "../api/hevy";
 import type { PushRoutineResult } from "../api/hevy";
 import type { TrainingPlan } from "../types";
@@ -236,6 +236,7 @@ export default function Coach() {
     setGenerating(true);
     setError("");
     try {
+      await updateProfile({ training_days_strength: strengthDays, training_days_cardio: cardioDays, training_days_rest: restDays });
       const p = await generateTrainingPlan({ strength_days: strengthDays, cardio_days: cardioDays, rest_days: restDays, force: true });
       setPlan(p);
       try { setParsedPlan(JSON.parse(p.plan_json)); } catch {}
