@@ -11,8 +11,11 @@ import {
   ClipboardCheck,
   ShieldCheck,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { getStoredUser } from "../auth/ProtectedRoute";
 import { useDarkMode } from "../../hooks/useDarkMode";
+import { getProfile } from "../../api/profile";
+import type { UserProfile } from "../../types";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -27,6 +30,11 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const user = getStoredUser();
   const { dark, toggle } = useDarkMode();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    getProfile().then(setProfile).catch(() => {});
+  }, []);
 
   function handleLogout() {
     localStorage.removeItem("auth_token");
@@ -102,10 +110,23 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="px-4 py-4 border-t border-white/10 space-y-3">
-        <div className="px-2">
-          <p className="text-xs text-blue-200/40">Goal: 18% BF by Dec 2026</p>
-          <p className="text-xs text-blue-200/40 mt-0.5">VO₂ Max: 45 → 50+</p>
-        </div>
+        {(profile?.bf_goal_pct || profile?.vo2max_goal) && (
+          <div className="px-2">
+            {profile.bf_goal_pct && (
+              <p className="text-xs text-blue-200/40">
+                Goal: {profile.bf_goal_pct}% BF
+                {profile.goal_date
+                  ? ` by ${new Date(profile.goal_date).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`
+                  : ""}
+              </p>
+            )}
+            {profile.vo2max_goal && (
+              <p className="text-xs text-blue-200/40 mt-0.5">
+                VO₂ Max goal: {profile.vo2max_goal}+
+              </p>
+            )}
+          </div>
+        )}
         <button
           onClick={toggle}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-blue-200/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
