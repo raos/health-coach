@@ -41,8 +41,8 @@ export default function Settings() {
   const [measWeight, setMeasWeight] = useState("");
   const [measBfPct, setMeasBfPct] = useState("");
   const [measVo2, setMeasVo2] = useState("");
-  const [measSaving, setMeasSaving] = useState<"weight" | "bodyfat" | "vo2" | null>(null);
-  const [measSuccess, setMeasSuccess] = useState<"weight" | "bodyfat" | "vo2" | null>(null);
+  const [measSaving, setMeasSaving] = useState(false);
+  const [measSuccess, setMeasSuccess] = useState(false);
   const [measError, setMeasError] = useState("");
 
   // Data export
@@ -180,36 +180,33 @@ export default function Settings() {
     }
   }
 
-  async function saveMeasurement(type: "weight" | "bodyfat" | "vo2") {
+  async function saveAllMeasurements() {
     setMeasError("");
-    setMeasSaving(type);
+    if (!measWeight && !measBfPct && !measVo2) {
+      setMeasError("Enter at least one measurement to log.");
+      return;
+    }
+    if (measWeight && isNaN(Number(measWeight))) { setMeasError("Enter a valid weight."); return; }
+    if (measBfPct && isNaN(Number(measBfPct))) { setMeasError("Enter a valid body fat %."); return; }
+    if (measVo2 && isNaN(Number(measVo2))) { setMeasError("Enter a valid VO₂ max."); return; }
+
+    setMeasSaving(true);
     const today = new Date().toISOString().slice(0, 10);
     try {
-      if (type === "weight") {
-        if (!measWeight || isNaN(Number(measWeight))) { setMeasError("Enter a valid weight."); return; }
-        await client.post("/api/weight/log", { date: today, weight_lbs: Number(measWeight) });
-        setMeasWeight("");
-      } else if (type === "bodyfat") {
-        if (!measBfPct || isNaN(Number(measBfPct))) {
-          setMeasError("Enter a valid body fat %.");
-          return;
-        }
-        await client.post("/api/body-composition/log", {
-          date: today,
-          body_fat_pct: Number(measBfPct),
-        });
-        setMeasBfPct("");
-      } else {
-        if (!measVo2 || isNaN(Number(measVo2))) { setMeasError("Enter a valid VO₂ max."); return; }
-        await client.post("/api/dashboard/log-vo2", { vo2max: Number(measVo2) });
-        setMeasVo2("");
-      }
-      setMeasSuccess(type);
-      setTimeout(() => setMeasSuccess(null), 2500);
+      const calls: Promise<any>[] = [];
+      if (measWeight) calls.push(client.post("/api/weight/log", { date: today, weight_lbs: Number(measWeight) }));
+      if (measBfPct) calls.push(client.post("/api/body-composition/log", { date: today, body_fat_pct: Number(measBfPct) }));
+      if (measVo2) calls.push(client.post("/api/dashboard/log-vo2", { vo2max: Number(measVo2) }));
+      await Promise.all(calls);
+      if (measWeight) setMeasWeight("");
+      if (measBfPct) setMeasBfPct("");
+      if (measVo2) setMeasVo2("");
+      setMeasSuccess(true);
+      setTimeout(() => setMeasSuccess(false), 2500);
     } catch (e: any) {
       setMeasError(e?.response?.data?.detail || "Failed to save.");
     } finally {
-      setMeasSaving(null);
+      setMeasSaving(false);
     }
   }
 
@@ -582,13 +579,6 @@ export default function Settings() {
                   className={inputClass + " max-w-40"}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">lbs</span>
-                <button
-                  onClick={() => saveMeasurement("weight")}
-                  disabled={measSaving === "weight" || !measWeight}
-                  className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {measSuccess === "weight" ? "Saved!" : measSaving === "weight" ? "Saving…" : "Log"}
-                </button>
               </div>
             </div>
 
@@ -604,13 +594,6 @@ export default function Settings() {
                   className={inputClass + " max-w-40"}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
-                <button
-                  onClick={() => saveMeasurement("bodyfat")}
-                  disabled={measSaving === "bodyfat" || !measBfPct}
-                  className="px-4 py-2 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 disabled:opacity-50"
-                >
-                  {measSuccess === "bodyfat" ? "Saved!" : measSaving === "bodyfat" ? "Saving…" : "Log"}
-                </button>
               </div>
             </div>
 
@@ -625,15 +608,16 @@ export default function Settings() {
                   className={inputClass + " max-w-40"}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">ml/kg/min</span>
-                <button
-                  onClick={() => saveMeasurement("vo2")}
-                  disabled={measSaving === "vo2" || !measVo2}
-                  className="px-4 py-2 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
-                >
-                  {measSuccess === "vo2" ? "Saved!" : measSaving === "vo2" ? "Saving…" : "Log"}
-                </button>
               </div>
             </div>
+
+            <button
+              onClick={saveAllMeasurements}
+              disabled={measSaving}
+              className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {measSuccess ? "Saved!" : measSaving ? "Saving…" : "Log"}
+            </button>
           </div>
         </div>
 
