@@ -5,7 +5,7 @@ import MetricCard from "../components/dashboard/MetricCard";
 import WeightChart from "../components/dashboard/WeightChart";
 import GoalProgress from "../components/dashboard/GoalProgress";
 import ActivityFeed from "../components/dashboard/ActivityFeed";
-import QuickWeightLog from "../components/dashboard/QuickWeightLog";
+import QuickMetricsLog from "../components/dashboard/QuickMetricsLog";
 import WorkoutHeatmap from "../components/dashboard/WorkoutHeatmap";
 import Vo2GaugeCard from "../components/dashboard/Vo2GaugeCard";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
@@ -74,13 +74,14 @@ export default function Dashboard() {
   const age = profile?.dob
     ? Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
     : 46;
-  const currentWeightRaw = summary?.latest_weight?.weight_lbs ?? summary?.latest_dexa?.total_weight_lbs;
+  const currentWeightRaw = summary?.latest_weight?.weight_lbs;
   const currentWeight = currentWeightRaw != null ? convertWeight(currentWeightRaw, measurementSystem) : undefined;
-  const currentBF = summary?.latest_dexa?.body_fat_pct ?? 28.4;
-  const currentVO2 = summary?.latest_vo2max?.vo2max ?? 45;
-  const currentLeanRaw = summary?.latest_dexa?.lean_mass_lbs ?? 123.9;
-  const currentLean = convertWeight(currentLeanRaw, measurementSystem);
+  const currentBF: number | null = summary?.latest_body_comp?.body_fat_pct ?? null;
+  const currentVO2: number | null = summary?.latest_vo2max?.vo2max ?? null;
+  const currentLeanRaw: number | null = summary?.latest_body_comp?.lean_mass_lbs ?? null;
+  const currentLean = currentLeanRaw != null ? convertWeight(currentLeanRaw, measurementSystem) : null;
   const wUnit = weightUnit(measurementSystem);
+  const hasVO2Goal = Boolean(summary?.goal_vo2max);
 
   return (
     <PageWrapper
@@ -113,33 +114,37 @@ export default function Dashboard() {
               title="Current Weight"
               value={currentWeight?.toFixed(1) ?? "—"}
               unit={wUnit}
-              subtitle={measurementSystem === "metric" ? "Goal: 75 kg" : "Goal: 165 lbs"}
               icon={<Scale className="w-5 h-5" />}
               accentColor="blue"
             />
-            <MetricCard
-              title="Body Fat"
-              value={currentBF?.toFixed(1) ?? "—"}
-              unit="%"
-              subtitle="Goal: 18% by Dec 2026"
-              icon={<Flame className="w-5 h-5" />}
-              accentColor="orange"
-            />
-            <MetricCard
-              title="VO₂ Max"
-              value={currentVO2?.toFixed(0) ?? "—"}
-              subtitle="Goal: 50+ by Dec 2026"
-              icon={<Activity className="w-5 h-5" />}
-              accentColor="green"
-            />
-            <MetricCard
-              title="Lean Mass"
-              value={currentLean?.toFixed(1) ?? "—"}
-              unit={wUnit}
-              subtitle={measurementSystem === "metric" ? "Goal: 59+ kg" : "Goal: 130+ lbs"}
-              icon={<Dumbbell className="w-5 h-5" />}
-              accentColor="purple"
-            />
+            {currentBF !== null && (
+              <MetricCard
+                title="Body Fat"
+                value={currentBF.toFixed(1)}
+                unit="%"
+                subtitle={goalProgress?.bf_goal ? `Goal: ${goalProgress.bf_goal}%` : undefined}
+                icon={<Flame className="w-5 h-5" />}
+                accentColor="orange"
+              />
+            )}
+            {currentVO2 !== null && (
+              <MetricCard
+                title="VO₂ Max"
+                value={currentVO2.toFixed(0)}
+                subtitle={goalProgress?.vo2_goal ? `Goal: ${goalProgress.vo2_goal}+` : undefined}
+                icon={<Activity className="w-5 h-5" />}
+                accentColor="green"
+              />
+            )}
+            {currentLean !== null && (
+              <MetricCard
+                title="Lean Mass"
+                value={currentLean.toFixed(1)}
+                unit={wUnit}
+                icon={<Dumbbell className="w-5 h-5" />}
+                accentColor="purple"
+              />
+            )}
           </div>
 
           {/* Charts + Heatmap + Activity */}
@@ -153,13 +158,18 @@ export default function Dashboard() {
             {/* Right column: Goal Progress → VO2 Trend → Quick Weight Log */}
             <div className="flex flex-col gap-4">
               <GoalProgress
-                bfCurrent={goalProgress?.bf_current ?? currentBF}
-                bfGoal={goalProgress?.bf_goal ?? 18}
-                vo2Current={goalProgress?.vo2_current ?? currentVO2}
-                vo2Goal={goalProgress?.vo2_goal ?? 50}
+                bfCurrent={goalProgress?.bf_current ?? null}
+                bfGoal={goalProgress?.bf_goal ?? null}
+                bfPctComplete={goalProgress?.bf_pct_complete ?? null}
+                vo2Current={goalProgress?.vo2_current ?? null}
+                vo2Goal={goalProgress?.vo2_goal ?? null}
+                vo2PctComplete={goalProgress?.vo2_pct_complete ?? null}
+                goalDate={summary?.goal_date}
               />
-              <Vo2GaugeCard vo2max={currentVO2} goal={summary?.goal_vo2max ?? 50} age={age} />
-              <QuickWeightLog onLogged={fetchAll} />
+              {currentVO2 !== null && hasVO2Goal && (
+                <Vo2GaugeCard vo2max={currentVO2} goal={summary!.goal_vo2max!} age={age} />
+              )}
+              <QuickMetricsLog onLogged={fetchAll} />
             </div>
           </div>
         </div>

@@ -168,7 +168,7 @@ def send_plan_email(
     resend.api_key = settings.resend_api_key
 
     params: resend.Emails.SendParams = {
-        "from": "HealthCoach <onboarding@resend.dev>",
+        "from": settings.resend_from_email,
         "to": [to_address],
         "subject": subject,
         "text": body_text,
@@ -178,7 +178,7 @@ def send_plan_email(
     resend.Emails.send(params)
 
 
-def send_html_email(to_address: str, subject: str, html: str) -> None:
+def send_html_email(to_address: str, subject: str, html: str, cc: str = None) -> None:
     """Send an inline HTML email (no attachment) via Resend."""
     if not settings.resend_api_key:
         raise RuntimeError("RESEND_API_KEY not configured.")
@@ -186,9 +186,12 @@ def send_html_email(to_address: str, subject: str, html: str) -> None:
         raise RuntimeError("No recipient email. Set your email in Settings → Profile.")
 
     resend.api_key = settings.resend_api_key
-    resend.Emails.send({
-        "from": "HealthCoach <onboarding@resend.dev>",
+    payload = {
+        "from": settings.resend_from_email,
         "to": [to_address],
         "subject": subject,
         "html": html,
-    })
+    }
+    if cc:
+        payload["cc"] = [cc]
+    resend.Emails.send(payload)

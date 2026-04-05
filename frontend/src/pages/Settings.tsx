@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, X, ExternalLink, Loader2, Save } from "lucide-react";
+import { Check, X, ExternalLink, Loader2, Save, Download, Trash2 } from "lucide-react";
 import PageWrapper from "../components/layout/PageWrapper";
 import client from "../api/client";
 import { getProfile, updateProfile } from "../api/profile";
@@ -7,19 +7,8 @@ import type { UserProfile } from "../types";
 
 export default function Settings() {
   const [stravaStatus, setStravaStatus] = useState<{ connected: boolean; athlete_name?: string } | null>(null);
-  const [integrationStatus, setIntegrationStatus] = useState<{ garmin: boolean; hevy: boolean; anthropic: boolean; mcp_api_key?: string } | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<{ hevy: boolean; anthropic: boolean; mcp_api_key?: string } | null>(null);
   const [mcpCopied, setMcpCopied] = useState(false);
-  const [garminAuth, setGarminAuth] = useState<{ authenticated: boolean; has_saved_tokens?: boolean } | null>(null);
-  const [garminConnecting, setGarminConnecting] = useState(false);
-  const [garminMfaPending, setGarminMfaPending] = useState(false);
-  const [garminOtp, setGarminOtp] = useState("");
-  const [garminError, setGarminError] = useState("");
-  const [showTokenImport, setShowTokenImport] = useState(false);
-  const [oauth1Json, setOauth1Json] = useState("");
-  const [oauth2Json, setOauth2Json] = useState("");
-  const [tokenImporting, setTokenImporting] = useState(false);
-  const [tokenImportError, setTokenImportError] = useState("");
-  const [tokenImportOk, setTokenImportOk] = useState(false);
 
   const [showPasteData, setShowPasteData] = useState(false);
   const [pasteJson, setPasteJson] = useState("");
@@ -36,28 +25,56 @@ export default function Settings() {
   // Height input in the selected unit
   const [heightInput, setHeightInput] = useState("");
 
-  function refreshGarminStatus() {
-    client.get("/api/garmin/status")
-      .then((r) => setGarminAuth(r.data))
-      .catch(() => {});
-  }
+  // Text representations of JSON array fields
+  const [exercisesText, setExercisesText] = useState("");
+  const [avoidText, setAvoidText] = useState("");
+  const [cuisinesText, setCuisinesText] = useState("");
+
+  // Hevy API key
+  const [hevyKey, setHevyKey] = useState("");
+  const [hevySaving, setHevySaving] = useState(false);
+
+  // MCP key generation
+  const [mcpGenerating, setMcpGenerating] = useState(false);
+
+  // Log measurements
+  const [measWeight, setMeasWeight] = useState("");
+  const [measBfPct, setMeasBfPct] = useState("");
+  const [measVo2, setMeasVo2] = useState("");
+  const [measSaving, setMeasSaving] = useState<"weight" | "bodyfat" | "vo2" | null>(null);
+  const [measSuccess, setMeasSuccess] = useState<"weight" | "bodyfat" | "vo2" | null>(null);
+  const [measError, setMeasError] = useState("");
+
+  // Data export
+  const [exporting, setExporting] = useState(false);
+
+  // Account deletion
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     client.get("/api/strava/status")
       .then((r) => setStravaStatus(r.data))
       .catch(() => setStravaStatus({ connected: false }));
 
+
     client.get("/api/settings/status")
       .then((r) => setIntegrationStatus(r.data))
       .catch(() => {});
-
-    refreshGarminStatus();
 
     getProfile()
       .then((p) => {
         setProfile(p);
         setProfileForm(p);
         setHeightInput(formatHeightInput(p.height_inches, p.measurement_system));
+        const parseArr = (s?: string | null) => {
+          try { return s ? (JSON.parse(s) as string[]).join(", ") : ""; } catch { return s ?? ""; }
+        };
+        setExercisesText(parseArr(p.preferred_exercises));
+        setAvoidText(parseArr(p.exercises_to_avoid));
+        setCuisinesText(parseArr(p.preferred_cuisines));
       })
       .catch(() => {});
   }, []);
@@ -101,9 +118,13 @@ export default function Settings() {
     const system = profileForm.measurement_system ?? "imperial";
     const heightInches = parseHeightToInches(heightInput, system);
 
+    const textToArr = (s: string) => JSON.stringify(s.split(",").map((x) => x.trim()).filter(Boolean));
     const payload: Partial<UserProfile> = {
       ...profileForm,
       height_inches: heightInches ?? profileForm.height_inches ?? undefined,
+      preferred_exercises: exercisesText.trim() ? textToArr(exercisesText) : undefined,
+      exercises_to_avoid: avoidText.trim() ? textToArr(avoidText) : undefined,
+      preferred_cuisines: cuisinesText.trim() ? textToArr(cuisinesText) : undefined,
     };
 
     try {
@@ -111,6 +132,12 @@ export default function Settings() {
       setProfile(updated);
       setProfileForm(updated);
       setHeightInput(formatHeightInput(updated.height_inches, updated.measurement_system));
+      const parseArr = (s?: string | null) => {
+        try { return s ? (JSON.parse(s) as string[]).join(", ") : ""; } catch { return s ?? ""; }
+      };
+      setExercisesText(parseArr(updated.preferred_exercises));
+      setAvoidText(parseArr(updated.exercises_to_avoid));
+      setCuisinesText(parseArr(updated.preferred_cuisines));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (e: any) {
@@ -120,67 +147,100 @@ export default function Settings() {
     }
   }
 
-  async function connectGarmin() {
-    setGarminConnecting(true);
-    setGarminError("");
+  async function saveHevyKey() {
+    if (!hevyKey.trim()) return;
+    setHevySaving(true);
     try {
-      const res = await client.post("/api/garmin/login");
-      if (res.data.status === "mfa_required") {
-        setGarminMfaPending(true);
+      await client.put("/api/profile", { hevy_api_key: hevyKey.trim() });
+      setHevyKey("");
+      const r = await client.get("/api/settings/status");
+      setIntegrationStatus(r.data);
+    } catch (e: any) {
+      console.error("Failed to save Hevy key:", e);
+    } finally {
+      setHevySaving(false);
+    }
+  }
+
+  async function disconnectHevy() {
+    if (!confirm("Disconnect Hevy? Your synced workouts will remain but no new sync will be possible until you reconnect.")) return;
+    await client.delete("/api/hevy/disconnect");
+    setIntegrationStatus((prev) => prev ? { ...prev, hevy: false } : prev);
+  }
+
+  async function generateMcpKey() {
+    setMcpGenerating(true);
+    try {
+      const r = await client.post("/api/profile/generate-mcp-key");
+      setIntegrationStatus((prev) => prev ? { ...prev, mcp_api_key: r.data.mcp_api_key } : prev);
+    } catch (e: any) {
+      console.error("Failed to generate MCP key:", e);
+    } finally {
+      setMcpGenerating(false);
+    }
+  }
+
+  async function saveMeasurement(type: "weight" | "bodyfat" | "vo2") {
+    setMeasError("");
+    setMeasSaving(type);
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      if (type === "weight") {
+        if (!measWeight || isNaN(Number(measWeight))) { setMeasError("Enter a valid weight."); return; }
+        await client.post("/api/weight/log", { date: today, weight_lbs: Number(measWeight) });
+        setMeasWeight("");
+      } else if (type === "bodyfat") {
+        if (!measBfPct || isNaN(Number(measBfPct))) {
+          setMeasError("Enter a valid body fat %.");
+          return;
+        }
+        await client.post("/api/body-composition/log", {
+          date: today,
+          body_fat_pct: Number(measBfPct),
+        });
+        setMeasBfPct("");
       } else {
-        refreshGarminStatus();
+        if (!measVo2 || isNaN(Number(measVo2))) { setMeasError("Enter a valid VO₂ max."); return; }
+        await client.post("/api/dashboard/log-vo2", { vo2max: Number(measVo2) });
+        setMeasVo2("");
       }
+      setMeasSuccess(type);
+      setTimeout(() => setMeasSuccess(null), 2500);
     } catch (e: any) {
-      setGarminError(e?.response?.data?.detail || e.message);
+      setMeasError(e?.response?.data?.detail || "Failed to save.");
     } finally {
-      setGarminConnecting(false);
+      setMeasSaving(null);
     }
   }
 
-  async function submitGarminMfa() {
-    if (!garminOtp.trim()) return;
-    setGarminConnecting(true);
-    setGarminError("");
+  async function handleExport() {
+    setExporting(true);
     try {
-      await client.post("/api/garmin/verify-mfa", { otp: garminOtp });
-      setGarminMfaPending(false);
-      setGarminOtp("");
-      refreshGarminStatus();
+      const res = await client.get("/api/account/data-export", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `healthcoach_export_${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e: any) {
-      setGarminError(e?.response?.data?.detail || e.message);
+      console.error("Export failed:", e);
     } finally {
-      setGarminConnecting(false);
+      setExporting(false);
     }
   }
 
-  async function importTokens() {
-    setTokenImportError("");
-    setTokenImportOk(false);
-    let oauth1: object, oauth2: object;
+  async function handleDeleteAccount() {
+    if (deleteInput !== "DELETE") return;
+    setDeleting(true);
+    setDeleteError("");
     try {
-      oauth1 = JSON.parse(oauth1Json);
-    } catch {
-      setTokenImportError("oauth1 JSON is invalid — check the format.");
-      return;
-    }
-    try {
-      oauth2 = JSON.parse(oauth2Json);
-    } catch {
-      setTokenImportError("oauth2 JSON is invalid — check the format.");
-      return;
-    }
-    setTokenImporting(true);
-    try {
-      await client.post("/api/garmin/import-tokens", { oauth1, oauth2 });
-      setTokenImportOk(true);
-      setShowTokenImport(false);
-      setOauth1Json("");
-      setOauth2Json("");
-      refreshGarminStatus();
+      await client.delete("/api/account", { data: { confirmation: "DELETE" } });
+      localStorage.removeItem("auth_token");
+      window.location.href = "/login";
     } catch (e: any) {
-      setTokenImportError(e?.response?.data?.detail || "Import failed.");
-    } finally {
-      setTokenImporting(false);
+      setDeleteError(e?.response?.data?.detail ?? "Failed to delete account.");
+      setDeleting(false);
     }
   }
 
@@ -203,6 +263,12 @@ export default function Settings() {
   async function connectStrava() {
     const res = await client.get("/api/strava/auth/url");
     window.location.href = res.data.url;
+  }
+
+  async function disconnectStrava() {
+    if (!confirm("Disconnect Strava? Your synced activities will remain but no new sync will be possible until you reconnect.")) return;
+    await client.delete("/api/strava/disconnect");
+    setStravaStatus({ connected: false });
   }
 
   const measurementSystem = (profileForm.measurement_system ?? "imperial") as "imperial" | "metric";
@@ -237,9 +303,14 @@ export default function Settings() {
               </div>
               <div className="flex items-center gap-2">
                 {stravaStatus?.connected ? (
-                  <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                    <Check className="w-3 h-3" /> Connected
-                  </span>
+                  <>
+                    <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                      <Check className="w-3 h-3" /> Connected
+                    </span>
+                    <button onClick={disconnectStrava} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900 dark:hover:text-red-300 transition-colors">
+                      Disconnect
+                    </button>
+                  </>
                 ) : (
                   <button onClick={connectStrava} className="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600">
                     Connect
@@ -250,157 +321,19 @@ export default function Settings() {
 
             {/* Garmin */}
             <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">G</div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Garmin Connect</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {garminAuth === null
-                        ? "Checking connection…"
-                        : garminAuth.authenticated
-                        ? "Session active — sleep, HRV, body battery available"
-                        : integrationStatus?.garmin
-                        ? "Session expired — click Reconnect to re-authenticate"
-                        : "Add GARMIN_EMAIL + GARMIN_PASSWORD to .env"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {garminAuth?.authenticated ? (
-                    <>
-                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                        <Check className="w-3 h-3" /> Connected
-                      </span>
-                      <button
-                        onClick={connectGarmin}
-                        disabled={garminConnecting}
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400 text-xs font-medium rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-50"
-                      >
-                        {garminConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                        {garminConnecting ? "Connecting..." : "Reconnect"}
-                      </button>
-                    </>
-                  ) : integrationStatus?.garmin ? (
-                    <button
-                      onClick={connectGarmin}
-                      disabled={garminConnecting}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50"
-                    >
-                      {garminConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                      {garminConnecting ? "Connecting..." : garminAuth !== null ? "Reconnect" : "Connect"}
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
-                      <X className="w-3 h-3" /> Not configured
-                    </span>
-                  )}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">G</div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Garmin Connect</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Import daily summary data from Garmin Connect</p>
                 </div>
               </div>
-              {/* MFA input */}
-              {garminMfaPending && (
-                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
-                  <p className="text-xs text-blue-800 dark:text-blue-300 font-medium mb-2">
-                    Garmin sent a one-time code to your email. Enter it below:
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={garminOtp}
-                      onChange={(e) => setGarminOtp(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && submitGarminMfa()}
-                      placeholder="123456"
-                      className="flex-1 px-3 py-1.5 text-sm border border-blue-300 dark:border-blue-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-                      autoFocus
-                    />
-                    <button
-                      onClick={submitGarminMfa}
-                      disabled={garminConnecting || !garminOtp.trim()}
-                      className="px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50"
-                    >
-                      {garminConnecting ? "Verifying..." : "Verify"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {garminError && (
-                <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
-                  <p className="text-xs text-red-700 dark:text-red-400">{garminError}</p>
-                  {(garminError.includes("429") || garminError.includes("rate-limit") || garminError.includes("Token Import")) && (
-                    <button
-                      onClick={() => { setShowTokenImport(true); setGarminError(""); }}
-                      className="mt-2 text-xs font-medium text-red-700 dark:text-red-400 underline"
-                    >
-                      Use Token Import instead →
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Token import — escape hatch when Railway IP is rate-limited */}
-              {(showTokenImport || (!garminAuth?.authenticated && garminAuth?.has_saved_tokens)) && (
-                <div className="mt-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Import tokens from local machine</p>
-                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                        Use this when Railway's IP is rate-limited by Garmin. Authenticate locally, then paste the token JSON files here.
-                      </p>
-                    </div>
-                    <button onClick={() => setShowTokenImport(false)} className="text-amber-500 hover:text-amber-700 flex-shrink-0">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="bg-amber-100 dark:bg-amber-900/40 rounded p-2 text-xs text-amber-800 dark:text-amber-300 font-mono space-y-1">
-                    <p className="font-sans font-semibold">On your local machine (already authenticated):</p>
-                    <p>cat backend/garmin_session/oauth1_token.json</p>
-                    <p>cat backend/garmin_session/oauth2_token.json</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">oauth1_token.json contents</label>
-                      <textarea
-                        value={oauth1Json}
-                        onChange={(e) => setOauth1Json(e.target.value)}
-                        placeholder='{"oauth_token": "...", "oauth_token_secret": "..."}'
-                        rows={3}
-                        className="w-full px-3 py-2 text-xs font-mono border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">oauth2_token.json contents</label>
-                      <textarea
-                        value={oauth2Json}
-                        onChange={(e) => setOauth2Json(e.target.value)}
-                        placeholder='{"access_token": "...", "refresh_token": "..."}'
-                        rows={3}
-                        className="w-full px-3 py-2 text-xs font-mono border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
-                      />
-                    </div>
-                    {tokenImportError && <p className="text-xs text-red-600 dark:text-red-400">{tokenImportError}</p>}
-                    {tokenImportOk && <p className="text-xs text-green-600 dark:text-green-400">Tokens imported successfully.</p>}
-                    <button
-                      onClick={importTokens}
-                      disabled={tokenImporting || !oauth1Json.trim() || !oauth2Json.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                    >
-                      {tokenImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                      {tokenImporting ? "Importing..." : "Import Tokens"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {/* Paste daily summary JSON */}
-              <div className="mt-3">
-                <button
-                  onClick={() => { setShowPasteData(!showPasteData); setPasteError(""); setPasteResult(null); }}
-                  className="text-xs text-blue-600 dark:text-blue-400 underline"
-                >
-                  {showPasteData ? "Hide" : "Paste daily summary JSON from Garmin Connect →"}
-                </button>
-              </div>
+              <button
+                onClick={() => { setShowPasteData(!showPasteData); setPasteError(""); setPasteResult(null); }}
+                className="text-xs text-blue-600 dark:text-blue-400 underline"
+              >
+                {showPasteData ? "Hide" : "Paste daily summary JSON from Garmin Connect →"}
+              </button>
               {showPasteData && (
                 <div className="mt-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg space-y-3">
                   <div>
@@ -440,42 +373,75 @@ export default function Settings() {
             </div>
 
             {/* Hevy */}
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-white font-bold text-xs">H</div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Hevy</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {integrationStatus?.hevy ? "API key configured — workouts available in Coach" : "Add HEVY_API_KEY to .env (from api.hevyapp.com/docs)"}
-                  </p>
+            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-white font-bold text-xs">H</div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Hevy</p>
+                    {!integrationStatus?.hevy && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Enter your API key from app.hevyapp.com → API</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {integrationStatus?.hevy ? (
+                    <>
+                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                        <Check className="w-3 h-3" /> Connected
+                      </span>
+                      <button onClick={disconnectHevy} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900 dark:hover:text-red-300 transition-colors">
+                        Disconnect
+                      </button>
+                    </>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
+                      <X className="w-3 h-3" /> Not configured
+                    </span>
+                  )}
                 </div>
               </div>
-              {integrationStatus?.hevy ? (
-                <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                  <Check className="w-3 h-3" /> Connected
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
-                  <X className="w-3 h-3" /> Not configured
-                </span>
+              {!integrationStatus?.hevy && (
+                <div className="flex gap-2 mt-3">
+                  <input
+                    type="password"
+                    value={hevyKey}
+                    onChange={(e) => setHevyKey(e.target.value)}
+                    placeholder="Paste your Hevy API key…"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  />
+                  <button
+                    onClick={saveHevyKey}
+                    disabled={hevySaving || !hevyKey.trim()}
+                    className="px-3 py-2 bg-gray-800 text-white text-xs font-medium rounded-lg hover:bg-gray-900 disabled:opacity-50"
+                  >
+                    {hevySaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
               )}
             </div>
 
             {/* Mobile Access (Claude.app MCP) */}
-            {integrationStatus?.mcp_api_key && (
-              <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">M</div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Mobile Access (Claude.app)</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Connect Claude.app to access your health data on the go</p>
-                  </div>
+            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">M</div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">Mobile Access (Claude.app)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Connect Claude.app to log meals, weight, and query your health data</p>
+                </div>
+                {integrationStatus?.mcp_api_key ? (
                   <span className="ml-auto flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
                     <Check className="w-3 h-3" /> Configured
                   </span>
-                </div>
+                ) : (
+                  <span className="ml-auto flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded-full">
+                    <X className="w-3 h-3" /> Not configured
+                  </span>
+                )}
+              </div>
+              {integrationStatus?.mcp_api_key ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400">MCP SSE URL</p>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Your personal MCP SSE URL</p>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 break-all">
                       {`${(client.defaults.baseURL || "").replace(/\/$/, "")}/mcp/sse?key=${integrationStatus.mcp_api_key}`}
@@ -497,8 +463,21 @@ export default function Settings() {
                     In Claude.app: Settings → Integrations → Add Integration → paste this URL
                   </p>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 flex-1">
+                    Generate a personal API key to connect Claude.app to your health data.
+                  </p>
+                  <button
+                    onClick={generateMcpKey}
+                    disabled={mcpGenerating}
+                    className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {mcpGenerating ? "Generating…" : "Generate Key"}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Patient Gateway */}
             <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg opacity-60">
@@ -512,6 +491,148 @@ export default function Settings() {
               <a href="https://fhir.epic.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
                 Learn more <ExternalLink className="w-3 h-3" />
               </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Data & Privacy */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Data & Privacy</h2>
+          <div className="space-y-4">
+            {/* Export */}
+            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Export Your Data</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Download a ZIP of all your health data as JSON files.</p>
+              </div>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+
+            {/* Delete account */}
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">Delete Account</p>
+              <p className="text-xs text-red-600 dark:text-red-500 mt-1 mb-3">
+                This will deactivate your account. All data will be permanently deleted after 30 days.
+              </p>
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete My Account
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-red-700 dark:text-red-400 font-medium">Type DELETE to confirm:</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={deleteInput}
+                      onChange={(e) => setDeleteInput(e.target.value)}
+                      placeholder="DELETE"
+                      className="flex-1 px-3 py-2 text-sm border border-red-300 rounded-lg bg-white dark:bg-gray-800 text-red-700 dark:text-red-400"
+                    />
+                    <button
+                      onClick={handleDeleteAccount}
+                      disabled={deleteInput !== "DELETE" || deleting}
+                      className="px-3 py-2 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => { setShowDeleteConfirm(false); setDeleteInput(""); setDeleteError(""); }}
+                      className="px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Log Measurements */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">Log Measurements</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">Record current readings — these build your history and update the Dashboard.</p>
+
+          {measError && (
+            <p className="mb-4 text-xs text-red-600 dark:text-red-400">{measError}</p>
+          )}
+
+          <div className="space-y-5">
+            {/* Weight */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Weight</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" step="0.1" placeholder="e.g. 175.5"
+                  value={measWeight}
+                  onChange={(e) => setMeasWeight(e.target.value)}
+                  className={inputClass + " max-w-40"}
+                />
+                <span className="text-sm text-gray-500 dark:text-gray-400">lbs</span>
+                <button
+                  onClick={() => saveMeasurement("weight")}
+                  disabled={measSaving === "weight" || !measWeight}
+                  className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {measSuccess === "weight" ? "Saved!" : measSaving === "weight" ? "Saving…" : "Log"}
+                </button>
+              </div>
+            </div>
+
+            {/* Body composition */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Body Fat %</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">Lean body mass is derived from your latest logged weight.</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" step="0.1" placeholder="Body fat %"
+                  value={measBfPct}
+                  onChange={(e) => setMeasBfPct(e.target.value)}
+                  className={inputClass + " max-w-40"}
+                />
+                <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
+                <button
+                  onClick={() => saveMeasurement("bodyfat")}
+                  disabled={measSaving === "bodyfat" || !measBfPct}
+                  className="px-4 py-2 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                >
+                  {measSuccess === "bodyfat" ? "Saved!" : measSaving === "bodyfat" ? "Saving…" : "Log"}
+                </button>
+              </div>
+            </div>
+
+            {/* VO2 Max */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">VO₂ Max</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" step="0.1" placeholder="e.g. 45"
+                  value={measVo2}
+                  onChange={(e) => setMeasVo2(e.target.value)}
+                  className={inputClass + " max-w-40"}
+                />
+                <span className="text-sm text-gray-500 dark:text-gray-400">ml/kg/min</span>
+                <button
+                  onClick={() => saveMeasurement("vo2")}
+                  disabled={measSaving === "vo2" || !measVo2}
+                  className="px-4 py-2 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {measSuccess === "vo2" ? "Saved!" : measSaving === "vo2" ? "Saving…" : "Log"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -670,6 +791,35 @@ export default function Settings() {
                     />
                   </div>
                   <div>
+                    <label className={labelClass}>Diet Type</label>
+                    <div className="flex flex-wrap gap-1">
+                      {(["omnivore", "vegetarian", "vegan", "pescatarian", "other"] as const).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => handleFieldChange("dietary_preference", opt)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                            (profileForm.dietary_preference ?? "omnivore") === opt
+                              ? "bg-blue-600 border-blue-600 text-white"
+                              : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-400"
+                          }`}
+                        >
+                          {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Cuisine Preferences <span className="font-normal text-gray-400">(comma-separated)</span></label>
+                    <input
+                      type="text"
+                      value={cuisinesText}
+                      onChange={(e) => { setCuisinesText(e.target.value); setSaveSuccess(false); setSaveError(""); }}
+                      className={inputClass}
+                      placeholder="e.g. South Indian, Mediterranean, Japanese"
+                    />
+                  </div>
+                  <div>
                     <label className={labelClass}>Breakfast Preferences</label>
                     <textarea
                       rows={4}
@@ -697,6 +847,33 @@ export default function Settings() {
                       onChange={(e) => handleFieldChange("dinner_pref", e.target.value || null)}
                       className={inputClass}
                       placeholder="Describe your dinner preferences…"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Training Preferences */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Training Preferences</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className={labelClass}>Exercises I'm Interested In <span className="font-normal text-gray-400">(comma-separated)</span></label>
+                    <textarea
+                      rows={2}
+                      value={exercisesText}
+                      onChange={(e) => { setExercisesText(e.target.value); setSaveSuccess(false); setSaveError(""); }}
+                      className={inputClass}
+                      placeholder="e.g. cable rows, Romanian deadlifts, lateral raises"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Exercises to Avoid <span className="font-normal text-gray-400">(comma-separated)</span></label>
+                    <textarea
+                      rows={2}
+                      value={avoidText}
+                      onChange={(e) => { setAvoidText(e.target.value); setSaveSuccess(false); setSaveError(""); }}
+                      className={inputClass}
+                      placeholder="e.g. barbell back squats, overhead press"
                     />
                   </div>
                 </div>

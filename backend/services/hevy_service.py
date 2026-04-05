@@ -1,6 +1,6 @@
 """
 Hevy service — calls the Hevy REST API directly via HevyAPIClient.
-Requires HEVY_API_KEY in .env (get it from https://api.hevyapp.com/docs/#/)
+API key is stored per-user in UserProfile.hevy_api_key.
 """
 import json
 from datetime import date, timedelta, datetime
@@ -8,24 +8,12 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from config import settings
 from database.models import HevyWorkout, HevyExerciseSet
 from services.hevy_api_client import HevyAPIClient
 
-_client: Optional[HevyAPIClient] = None
 
-
-def is_configured() -> bool:
-    return bool(settings.hevy_api_key)
-
-
-def _get_client() -> HevyAPIClient:
-    global _client
-    if not is_configured():
-        raise RuntimeError("HEVY_API_KEY not set in .env")
-    if _client is None:
-        _client = HevyAPIClient(settings.hevy_api_key)
-    return _client
+def is_configured(api_key: Optional[str] = None) -> bool:
+    return bool(api_key)
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
@@ -37,7 +25,7 @@ def _parse_dt(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _upsert_workout(db: Session, w: dict) -> bool:
+def _upsert_workout(db: Session, w: dict, user_id=None) -> bool:
     """Insert or replace a single Hevy workout and its sets. Returns True if new."""
     workout_id = str(w.get("id", ""))
     if not workout_id:
@@ -55,7 +43,10 @@ def _upsert_workout(db: Session, w: dict) -> bool:
         for s in ex.get("sets", [])
     )
 
-    existing = db.query(HevyWorkout).filter(HevyWorkout.id == workout_id).first()
+    q = db.query(HevyWorkout).filter(HevyWorkout.id == workout_id)
+    if user_id is not None:
+        q = q.filter(HevyWorkout.user_id == user_id)
+    existing = q.first()
     is_new = existing is None
 
     if existing:
@@ -70,6 +61,7 @@ def _upsert_workout(db: Session, w: dict) -> bool:
     else:
         db.add(HevyWorkout(
             id=workout_id,
+            user_id=user_id,
             title=w.get("title", "Hevy Workout"),
             start_time=start_time,
             end_time=end_time,
@@ -83,6 +75,7 @@ def _upsert_workout(db: Session, w: dict) -> bool:
         for i, s in enumerate(ex.get("sets", [])):
             weight_kg = s.get("weight_kg", 0) or 0
             db.add(HevyExerciseSet(
+                user_id=user_id,
                 workout_id=workout_id,
                 exercise_name=ex_name,
                 set_index=i,
@@ -95,27 +88,28 @@ def _upsert_workout(db: Session, w: dict) -> bool:
     return is_new
 
 
-def sync_workouts(db: Session, limit: int = 200) -> dict:
-    """Fetch recent workouts via MCP and sync to DB. Returns counts of added/updated/deleted."""
-    if not is_configured():
+def sync_workouts(db: Session, user_id=None, api_key: Optional[str] = None, limit: int = 200) -> dict:
+    """Fetch recent workouts via Hevy REST API and sync to DB. Returns counts of added/updated/deleted."""
+    if not api_key:
         return {"added": 0, "updated": 0, "deleted": 0}
 
-    client = _get_client()
+    client = HevyAPIClient(api_key)
     cutoff_date = date.today() - timedelta(days=180)
     cutoff_str = cutoff_date.isoformat()
     workouts = client.get_workouts(limit=limit, start_date=cutoff_str)
 
     fetched_ids = {str(w.get("id", "")) for w in workouts if w.get("id")}
 
-    # Delete local workouts (and their sets) within the 90-day window that
-    # are no longer returned by Hevy — they were deleted by the user.
+    # Delete local workouts within the window that are no longer in Hevy
     cutoff_dt = datetime.combine(cutoff_date, datetime.min.time())
-    stale = (
+    stale_q = (
         db.query(HevyWorkout)
         .filter(HevyWorkout.start_time >= cutoff_dt)
         .filter(HevyWorkout.id.notin_(fetched_ids))
-        .all()
     )
+    if user_id is not None:
+        stale_q = stale_q.filter(HevyWorkout.user_id == user_id)
+    stale = stale_q.all()
     deleted = len(stale)
     for row in stale:
         db.query(HevyExerciseSet).filter(HevyExerciseSet.workout_id == row.id).delete()
@@ -123,7 +117,7 @@ def sync_workouts(db: Session, limit: int = 200) -> dict:
 
     added = updated = 0
     for w in workouts:
-        is_new = _upsert_workout(db, w)
+        is_new = _upsert_workout(db, w, user_id=user_id)
         if is_new:
             added += 1
         else:
@@ -133,12 +127,12 @@ def sync_workouts(db: Session, limit: int = 200) -> dict:
     return {"added": added, "updated": updated, "deleted": deleted}
 
 
-def get_recent_workouts_summary(days: int = 14) -> str:
+def get_recent_workouts_summary(days: int = 14, api_key: Optional[str] = None) -> str:
     """Return a text summary of recent workouts for AI context."""
-    if not is_configured():
-        return "Hevy not configured (add HEVY_API_KEY to .env)."
+    if not is_configured(api_key):
+        return "Hevy not configured. Add your API key in Settings."
     try:
-        client = _get_client()
+        client = HevyAPIClient(api_key)
         cutoff = (date.today() - timedelta(days=days)).isoformat()
         workouts = client.get_workouts(limit=10, start_date=cutoff)
         if not workouts:

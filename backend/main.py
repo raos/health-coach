@@ -1,10 +1,11 @@
+import uuid
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database.engine import init_db, get_db
-from dependencies import verify_token
-from routers import weight, dexa, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email
+from dependencies import verify_token, get_user_id
+from routers import weight, body_composition, dashboard, coach, nutrition, health_advisor, strava, garmin, profile, hevy, supplements, checkin, email, admin, account
 from routers import auth
 
 app = FastAPI(
@@ -31,12 +32,12 @@ def startup_event():
 def _start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
-    from services.weekly_summary_service import send_weekly_summary
+    from services.weekly_summary_service import send_weekly_summary_all_users
     import logging
 
     scheduler = BackgroundScheduler(timezone="America/New_York")
     scheduler.add_job(
-        send_weekly_summary,
+        send_weekly_summary_all_users,
         CronTrigger(day_of_week="sun", hour=19, minute=30, timezone="America/New_York"),
         id="weekly_summary",
         replace_existing=True,
@@ -56,8 +57,19 @@ from sqlalchemy.orm import Session
 from services.strava_service import StravaService
 
 @app.get("/api/strava/auth/callback", tags=["strava"])
-def strava_auth_callback(code: str = Query(...), db: Session = Depends(get_db)):
-    svc = StravaService(db)
+def strava_auth_callback(
+    code: str = Query(...),
+    state: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    user_id = None
+    if state:
+        try:
+            user_id = _uuid.UUID(state)
+        except ValueError:
+            pass
+    svc = StravaService(db, user_id)
     token_data = svc.exchange_code(code)
     svc.save_tokens(token_data)
     return RedirectResponse(url=f"{settings.frontend_url}/settings")
@@ -75,7 +87,7 @@ app.add_api_route("/api/garmin/push-data", garmin_push_data, methods=["POST"], t
 # ── Protected routes (JWT required) ─────────────────────────────────────────
 _auth = [Depends(verify_token)]
 app.include_router(weight.router, dependencies=_auth)
-app.include_router(dexa.router, dependencies=_auth)
+app.include_router(body_composition.router, dependencies=_auth)
 app.include_router(dashboard.router, dependencies=_auth)
 app.include_router(coach.router, dependencies=_auth)
 app.include_router(nutrition.router, dependencies=_auth)
@@ -87,6 +99,8 @@ app.include_router(hevy.router, dependencies=_auth)
 app.include_router(supplements.router, dependencies=_auth)
 app.include_router(checkin.router, dependencies=_auth)
 app.include_router(email.router, dependencies=_auth)
+app.include_router(admin.router, dependencies=_auth)
+app.include_router(account.router, dependencies=_auth)
 
 
 @app.get("/api/health-check")
@@ -95,10 +109,18 @@ def health_check():
 
 
 @app.get("/api/settings/status", dependencies=_auth)
-def settings_status():
+def settings_status(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    from database.models import UserProfile as _UP
+    profile = db.query(_UP).filter(_UP.user_id == user_id).first()
+    # Auto-generate MCP key for existing users who don't have one yet
+    if profile and not profile.mcp_api_key:
+        profile.mcp_api_key = str(uuid.uuid4())
+        db.commit()
     return {
-        "garmin": bool(settings.garmin_email and settings.garmin_password),
-        "hevy": bool(settings.hevy_api_key),
+        "hevy": bool(profile.hevy_api_key if profile else None),
         "anthropic": bool(settings.anthropic_api_key),
-        "mcp_api_key": settings.mcp_api_key,
+        "mcp_api_key": profile.mcp_api_key if profile else None,
     }

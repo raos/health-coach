@@ -1,3 +1,4 @@
+import uuid
 import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -7,19 +8,38 @@ from typing import List
 
 from config import settings
 from database.engine import get_db
-from database.models import HevyExerciseSet, HevyWorkout
+from database.models import HevyExerciseSet, HevyWorkout, UserProfile
+from dependencies import get_user_id
 
 router = APIRouter(prefix="/api/hevy", tags=["hevy"])
 
 
+@router.delete("/disconnect")
+def disconnect_hevy(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    if profile:
+        profile.hevy_api_key = None
+        db.commit()
+    return {"status": "disconnected"}
+
+
 @router.get("/exercises")
-def list_exercises(db: Session = Depends(get_db)):
+def list_exercises(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     """Return distinct exercise names that have at least one normal set with weight data."""
     rows = (
         db.query(HevyExerciseSet.exercise_name)
-        .filter(HevyExerciseSet.set_type == "normal")
-        .filter(HevyExerciseSet.weight_lbs.isnot(None))
-        .filter(HevyExerciseSet.weight_lbs > 0)
+        .filter(
+            HevyExerciseSet.user_id == user_id,
+            HevyExerciseSet.set_type == "normal",
+            HevyExerciseSet.weight_lbs.isnot(None),
+            HevyExerciseSet.weight_lbs > 0,
+        )
         .distinct()
         .order_by(HevyExerciseSet.exercise_name)
         .all()
@@ -32,6 +52,7 @@ def get_exercise_progress(
     exercise_name: str = Query(...),
     weeks: int = Query(13),
     db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
 ):
     """
     Return per-week heaviest weight lifted for one exercise.
@@ -49,11 +70,14 @@ def get_exercise_progress(
     sets = (
         db.query(HevyExerciseSet, HevyWorkout.start_time)
         .join(HevyWorkout, HevyWorkout.id == HevyExerciseSet.workout_id)
-        .filter(HevyExerciseSet.exercise_name == exercise_name)
-        .filter(HevyExerciseSet.set_type == "normal")
-        .filter(HevyExerciseSet.weight_lbs.isnot(None))
-        .filter(HevyExerciseSet.weight_lbs > 0)
-        .filter(HevyWorkout.start_time >= cutoff_dt)
+        .filter(
+            HevyExerciseSet.user_id == user_id,
+            HevyExerciseSet.exercise_name == exercise_name,
+            HevyExerciseSet.set_type == "normal",
+            HevyExerciseSet.weight_lbs.isnot(None),
+            HevyExerciseSet.weight_lbs > 0,
+            HevyWorkout.start_time >= cutoff_dt,
+        )
         .order_by(HevyWorkout.start_time)
         .all()
     )
@@ -133,17 +157,23 @@ def _parse_reps(reps_str: str) -> int:
 
 
 @router.post("/push-routine")
-def push_routine(payload: PushRoutineRequest):
+def push_routine(
+    payload: PushRoutineRequest,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
     """
     Create a routine in Hevy from a training plan day.
     Fuzzy-matches exercise names to Hevy exercise templates.
     Returns: { routine_id, matched: [...], unmatched: [...] }
     """
-    if not settings.hevy_api_key:
-        raise HTTPException(status_code=503, detail="HEVY_API_KEY not configured.")
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    api_key = profile.hevy_api_key if profile else None
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Hevy API key not configured. Add it in Settings.")
 
     from services.hevy_api_client import HevyAPIClient
-    client = HevyAPIClient(settings.hevy_api_key)
+    client = HevyAPIClient(api_key)
 
     # Fetch all exercise templates once
     templates = client.get_exercises(exclude_unused=False)

@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,14 +7,22 @@ from sqlalchemy import desc
 
 from database.engine import get_db
 from database.models import WeightLog
+from dependencies import get_user_id
 from schemas.weight import WeightLogCreate, WeightLogResponse
 
 router = APIRouter(prefix="/api/weight", tags=["weight"])
 
 
 @router.post("/log", response_model=WeightLogResponse)
-def log_weight(payload: WeightLogCreate, db: Session = Depends(get_db)):
-    existing = db.query(WeightLog).filter(WeightLog.date == payload.date).first()
+def log_weight(
+    payload: WeightLogCreate,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    existing = db.query(WeightLog).filter(
+        WeightLog.user_id == user_id,
+        WeightLog.date == payload.date,
+    ).first()
     if existing:
         existing.weight_lbs = payload.weight_lbs
         existing.notes = payload.notes
@@ -22,7 +31,7 @@ def log_weight(payload: WeightLogCreate, db: Session = Depends(get_db)):
         db.refresh(existing)
         return existing
 
-    entry = WeightLog(**payload.model_dump())
+    entry = WeightLog(user_id=user_id, **payload.model_dump())
     db.add(entry)
     db.commit()
     db.refresh(entry)
@@ -30,9 +39,11 @@ def log_weight(payload: WeightLogCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/latest", response_model=Optional[WeightLogResponse])
-def get_latest_weight(db: Session = Depends(get_db)):
-    entry = db.query(WeightLog).order_by(desc(WeightLog.date)).first()
-    return entry
+def get_latest_weight(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    return db.query(WeightLog).filter(WeightLog.user_id == user_id).order_by(desc(WeightLog.date)).first()
 
 
 @router.get("/history", response_model=List[WeightLogResponse])
@@ -40,8 +51,9 @@ def get_weight_history(
     start: Optional[date] = None,
     end: Optional[date] = None,
     db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
 ):
-    q = db.query(WeightLog)
+    q = db.query(WeightLog).filter(WeightLog.user_id == user_id)
     if start:
         q = q.filter(WeightLog.date >= start)
     if end:
@@ -50,8 +62,12 @@ def get_weight_history(
 
 
 @router.delete("/{entry_id}")
-def delete_weight_entry(entry_id: int, db: Session = Depends(get_db)):
-    entry = db.query(WeightLog).filter(WeightLog.id == entry_id).first()
+def delete_weight_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    entry = db.query(WeightLog).filter(WeightLog.id == entry_id, WeightLog.user_id == user_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     db.delete(entry)
