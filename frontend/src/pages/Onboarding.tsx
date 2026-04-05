@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, ArrowRight, ArrowLeft, CheckCircle } from "lucide-react";
+import { ArrowRight, ArrowLeft, CheckCircle } from "lucide-react";
 import client from "../api/client";
 import { getStoredUser } from "../components/auth/ProtectedRoute";
 
@@ -148,15 +148,14 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen flex">
       {/* Left panel — branding + step nav */}
-      <div className="hidden lg:flex lg:w-80 xl:w-96 flex-shrink-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex-col px-10 py-12">
-        <div className="flex items-center gap-2 mb-2">
-          <Activity className="w-7 h-7 text-blue-400" />
-          <span className="text-xl font-bold text-white">HealthCoach</span>
+      <div className="hidden lg:flex lg:w-80 xl:w-96 flex-shrink-0 flex-col px-10 py-12" style={{ background: "linear-gradient(180deg, #071328 0%, #0a1a35 60%, #0d2040 100%)" }}>
+        <div className="flex items-center justify-center mb-3">
+          <img src="/logo.png" alt="Health Coach" className="w-36 h-auto" />
         </div>
-        <p className="text-gray-400 text-sm mb-6">Let's set up your profile</p>
+        <p className="text-blue-200/60 text-sm mb-6 text-center">Let's set up your profile</p>
 
         {currentUser && (
-          <div className="flex items-center gap-3 mb-12 px-4 py-3 bg-white/5 rounded-xl border border-white/10">
+          <div className="flex items-center gap-3 mb-8 px-4 py-3 bg-white/5 rounded-xl border border-white/10">
             {currentUser.picture ? (
               <img src={currentUser.picture} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
             ) : (
@@ -177,11 +176,12 @@ export default function Onboarding() {
               key={i}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                 i === step
-                  ? "bg-blue-600 text-white"
+                  ? "text-white"
                   : i < step
-                  ? "text-gray-300"
-                  : "text-gray-600"
+                  ? "text-blue-200/70"
+                  : "text-blue-200/30"
               }`}
+            style={i === step ? { background: "linear-gradient(90deg, #1a6b3c 0%, #0e7490 100%)" } : {}}
             >
               <div
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
@@ -199,7 +199,7 @@ export default function Onboarding() {
           ))}
         </nav>
 
-        <p className="mt-auto text-xs text-gray-600 pt-12">
+        <p className="mt-auto text-xs text-blue-200/30 pt-12">
           You can update all of these settings later from Settings.
         </p>
       </div>
@@ -208,9 +208,8 @@ export default function Onboarding() {
       <div className="flex-1 bg-gray-50 flex flex-col">
         {/* Mobile header */}
         <div className="lg:hidden bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="w-6 h-6 text-blue-600" />
-            <span className="text-lg font-bold text-gray-900">HealthCoach</span>
+          <div className="flex items-center justify-center mb-3">
+            <img src="/logo.png" alt="Health Coach" className="w-28 h-auto" />
           </div>
           <div className="flex gap-1.5">
             {STEPS.map((_, i) => (

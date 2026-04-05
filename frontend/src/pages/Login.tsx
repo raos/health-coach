@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, Mail, CheckCircle } from "lucide-react";
+import { Mail, CheckCircle } from "lucide-react";
 import client from "../api/client";
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -382,12 +382,9 @@ export default function Login() {
   return (
     <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-2">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex-col items-center justify-center px-16 text-white">
-        <div className="flex items-center gap-3 mb-6">
-          <Activity className="w-10 h-10 text-blue-400" />
-          <span className="text-3xl font-bold tracking-tight">HealthCoach</span>
-        </div>
-        <p className="text-gray-400 text-lg text-center mb-12 max-w-sm">
+      <div className="hidden lg:flex flex-col items-center justify-center px-16 text-white" style={{ background: "linear-gradient(160deg, #071328 0%, #0a1a35 50%, #0d2040 100%)" }}>
+        <img src="/logo.png" alt="Health Coach" className="w-52 h-auto mb-6" />
+        <p className="text-blue-200/70 text-lg text-center mb-12 max-w-sm">
           Your personal AI health &amp; fitness coach.
         </p>
         <div className="grid grid-cols-1 gap-5 w-full max-w-sm">
@@ -396,8 +393,8 @@ export default function Login() {
             { label: "Nutrition", value: "Personal Nutritionist", desc: "Meal plans + Food log + Macros Breakdown" },
             { label: "Insights", value: "Health Advisor", desc: "Key health metrics and insights" },
           ].map(({ label, value, desc }) => (
-            <div key={label} className="bg-white/10 rounded-2xl px-5 py-4 backdrop-blur-sm border border-white/10">
-              <p className="text-xs text-blue-300 uppercase tracking-wider mb-0.5">{label}</p>
+            <div key={label} className="rounded-2xl px-5 py-4 backdrop-blur-sm border border-white/10" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: "#4ade80" }}>{label}</p>
               <p className="font-semibold">{value}</p>
               <p className="text-sm text-gray-400 mt-0.5">{desc}</p>
             </div>
@@ -408,9 +405,8 @@ export default function Login() {
       {/* Right panel */}
       <div className="flex flex-col items-center justify-center bg-gray-50 px-8 py-12">
         {/* Mobile logo */}
-        <div className="flex lg:hidden items-center gap-2 mb-10">
-          <Activity className="w-7 h-7 text-blue-600" />
-          <span className="text-xl font-bold text-gray-900">Health Coach</span>
+        <div className="flex lg:hidden items-center justify-center mb-10">
+          <img src="/logo.png" alt="Health Coach" className="w-36 h-auto" />
         </div>
 
         <div className="w-full max-w-sm">
