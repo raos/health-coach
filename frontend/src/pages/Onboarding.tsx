@@ -148,7 +148,7 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen flex">
       {/* Left panel — branding + step nav */}
-      <div className="hidden lg:flex lg:w-80 xl:w-96 flex-shrink-0 flex-col px-10 py-12" style={{ background: "linear-gradient(180deg, #071328 0%, #0a1a35 60%, #0d2040 100%)" }}>
+      <div className="hidden lg:flex lg:w-80 xl:w-96 flex-shrink-0 flex-col px-10 py-12" style={{ background: "#0a215a" }}>
         <div className="flex items-center justify-center mb-3">
           <img src="/logo.png" alt="Health Coach" className="w-36 h-auto" />
         </div>

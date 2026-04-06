@@ -42,7 +42,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-64 min-h-screen flex flex-col text-white" style={{ background: "linear-gradient(180deg, #071328 0%, #0a1a35 60%, #0d2040 100%)" }}>
+    <aside className="w-64 min-h-screen flex flex-col text-white" style={{ background: "#0a215a" }}>
       {/* Logo */}
       <div className="flex items-center justify-center px-4 py-5 border-b border-white/10">
         <img src="/logo.png" alt="Health Coach" className="w-60 h-auto" />

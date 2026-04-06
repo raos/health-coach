@@ -382,7 +382,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-2">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex flex-col items-center justify-center px-16 text-white" style={{ background: "linear-gradient(160deg, #071328 0%, #0a1a35 50%, #0d2040 100%)" }}>
+      <div className="hidden lg:flex flex-col items-center justify-center px-16 text-white" style={{ background: "#0a215a" }}>
         <img src="/logo.png" alt="Health Coach" className="w-52 h-auto mb-6" />
         <p className="text-blue-200/70 text-lg text-center mb-12 max-w-sm">
           Your personal AI health &amp; fitness coach.
