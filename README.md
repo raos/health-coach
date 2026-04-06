@@ -18,9 +18,9 @@ A multi-tenant AI health coaching app. Each user gets their own AI coach, nutrit
 - **Weekly Check-In** — 5-point self-assessment ratings (training adherence, energy, sleep quality, diet, stress) with history view
 - **Telegram Bot** — Natural-language bot linked via your MCP API key; uses the same 14 tools as the MCP server so you can log meals, check workouts, and query data from any device
 - **Remote MCP Server** — Per-user MCP API key; connect Claude.app (iOS/Android) or Claude Desktop; 14 tools for logging, querying, syncing, and generating plans
-- **Strava integration** — OAuth2 sync for cardio activities (per user)
+- **Strava integration** — OAuth2 sync for cardio activities (per user). OAuth tokens are encrypted in DB.
 - **Garmin Connect integration** — Sleep, steps, body battery, resting HR, VO2 max via paste-data or push-data import
-- **Hevy integration** — Per-user API key stored in profile; strength workout history and exercise progress via REST API
+- **Hevy integration** — Per-user encrypted API key is stored in profile; strength workout history and exercise progress via REST API
 - **Weekly Summary Email** — Auto-sent every Sunday at 7:30 PM ET; covers weight, workouts, nutrition, and health metrics
 - **Multi-tenant auth** — Google OAuth + magic link email; invite-code–gated sign-up; admin UI for user management
 - **GDPR-friendly** — Per-user data export (ZIP), account deletion, conversation history wipe, consent logging
