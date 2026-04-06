@@ -252,25 +252,31 @@ def _build_html(data: dict) -> str:
 
 def send_weekly_summary_for_user(user_id: uuid.UUID, db: Session) -> None:
     """Send the weekly summary for a specific user. Called by the email router and the scheduler."""
+    import logging
+    log = logging.getLogger(__name__)
+
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    user = db.query(User).filter(User.id == user_id).first()
-    recipient = (profile.email if profile and getattr(profile, "email", None) else None) or (user.email if user else None)
-    if not recipient:
-        raise RuntimeError(f"No email address found for user {user_id}.")
+    if not profile:
+        log.error("Weekly summary skipped for user %s: no profile found.", user_id)
+        return
 
     # Respect opt-out
-    if profile and not getattr(profile, "weekly_email_enabled", True):
+    if not getattr(profile, "weekly_email_enabled", True):
+        return
+
+    user = db.query(User).filter(User.id == user_id).first()
+    recipient = user.email if user else None
+    if not recipient:
+        log.error("Weekly summary skipped for user %s: no email address found.", user_id)
         return
 
     data = _gather(db, user_id)
     html = _build_html(data)
     week_str = data["week_start"].strftime("%b %d") + " – " + data["today"].strftime("%b %d")
-    cc = getattr(profile, "weekly_email_cc", None) if profile else None
     send_html_email(
         to_address=recipient,
         subject=f"Weekly Health Summary — {week_str}",
         html=html,
-        cc=cc,
     )
 
 
