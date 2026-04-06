@@ -1,6 +1,6 @@
 # Health Coach App — CLAUDE.md
 
-Multi-tenant personal health coaching web app. Each user gets their own AI training coach, nutritionist, and health advisor (Claude AI), with per-user Strava, Garmin, and Hevy integrations. Includes a per-user remote MCP server so Claude on mobile/desktop can log meals and query health data. Invite-only sign-up; admin panel for user management.
+Multi-tenant personal health coaching web app. Each user gets their own AI training coach, nutritionist, and health advisor (Claude AI), with per-user Strava, Garmin, Hevy, and Telegram integrations. Includes a per-user remote MCP server so Claude on mobile/desktop can log meals and query health data, and a Telegram bot that reuses the same 14 MCP tools. Invite-only sign-up; admin panel for user management.
 
 ---
 
@@ -54,26 +54,31 @@ backend/          FastAPI + SQLAlchemy (PostgreSQL)
     email.py      Manual trigger for weekly summary email (POST /api/email/weekly-summary)
     supplements.py Supplement CRUD + daily logging
     body_composition.py Body fat / lean mass logging
+    telegram.py   Telegram bot webhook (public) + status/disconnect (protected)
   services/       All business logic and external API calls
     claude_service.py        All Claude AI calls — plans, chat, parse_meal_description()
     weekly_summary_service.py  send_weekly_summary_all_users() — called by scheduler + endpoint
+    telegram_service.py      Telegram bot logic + Claude tool-use loop (reuses MCP tools)
   prompts/        Claude system prompts as Python string constants
     nutrition_system.py  Contains NUTRITION_SYSTEM_PROMPT + NUTRITIONIST_CHAT_SYSTEM
   scripts/
     migrate_sqlite_to_postgres.py  One-time SQLite → PostgreSQL data migration
     seed_admin_user.py             Bootstrap admin user row for fresh installs
+    setup_telegram_webhook.py      One-time Telegram webhook registration
+    garmin_import_json.py          Batch Garmin JSON import from saved files
 
 frontend/         React 19 + TypeScript + Vite + Tailwind CSS v4
   src/api/        One Axios client per domain; client.ts injects JWT on every request
-  src/pages/      Login, Onboarding, Dashboard, Coach, Nutrition, HealthAdvisor, Settings, Admin
+  src/pages/      Login, Onboarding, Dashboard, Coach, Nutrition, HealthAdvisor, Settings, Admin, WeeklyCheckin
     Login.tsx     Google OAuth + magic link tabs; invite code input
     Onboarding.tsx 5-step wizard for new users (personal → goals → training → nutrition → integrations)
     Admin.tsx     User management + invite code generator (is_admin only)
     Nutrition.tsx 4 tabs: Meal Plan | Food Log | Shopping List | Nutritionist
-    Settings.tsx  Profile, integrations, per-user MCP key, data export, account deletion
+    WeeklyCheckin.tsx 5-point self-assessment ratings (training, energy, sleep, diet, stress) + history
+    Settings.tsx  Profile, integrations (Strava, Hevy, Telegram, MCP), data export, account deletion
   src/components/
     auth/         ProtectedRoute.tsx — redirects to /onboarding if onboarding_complete=false
-    layout/       Sidebar with Google profile photo + logout button + Admin link (admin only)
+    layout/       Sidebar with Google profile photo + dynamic goals + logout + Admin link (admin only)
     shared/       MarkdownRenderer uses react-markdown + remark-gfm
   src/types/      All TypeScript interfaces in index.ts
 ```
@@ -125,6 +130,7 @@ New non-admin users have `UserProfile.onboarding_complete = False`. `ProtectedRo
 ```python
 # Public — no JWT
 app.include_router(auth.router)           # /api/auth/* (OAuth, magic link, invite validation)
+app.include_router(telegram.router)       # /api/telegram/webhook (Telegram webhook, secret-validated)
 app.get("/api/strava/auth/callback")      # called by Strava's servers; user_id from state param
 app.add_route("/mcp/sse", sse_endpoint)   # per-user API key auth, not JWT
 app.add_route("/mcp/messages", messages_endpoint, methods=["POST"])
@@ -184,7 +190,7 @@ alembic upgrade head
 | `hevy_exercise_sets` | `HevyExerciseSet` | FK to (workout_id, user_id) composite |
 | `training_plans` | `TrainingPlan` | Claude-generated weekly plans |
 | `meal_plans` | `MealPlan` | Claude-generated weekly meal plans |
-| `nutrition_logs` | `NutritionLog` | Logged meals (source: "web" or "mcp") |
+| `nutrition_logs` | `NutritionLog` | Logged meals (source: "web", "mcp", or "telegram") |
 | `health_insights` | `HealthInsight` | Claude-generated health reports |
 | `coach_conversations` | `CoachConversation` | Chat history — session "default" (coach) or "nutrition-default" (nutritionist) |
 | `oauth_tokens` | `OAuthToken` | Unique constraint: (user_id, service) |
@@ -196,7 +202,7 @@ alembic upgrade head
 ### DailyHealthCache (replaces GarminDailyCache)
 `GarminDailyCache = DailyHealthCache` is a backwards-compatible alias at the bottom of `models.py`. New code should use `DailyHealthCache`. The table has a `source` column (`garmin`/`google_fit`/`apple_health`/`manual`) and `sleep_score`, `deep_min`, `rem_min`, `light_min` columns.
 
-### UserProfile key fields (new in multi-tenant)
+### UserProfile key fields
 ```python
 mcp_api_key = Column(String(100), unique=True)   # per-user MCP auth key (auto-generated on account creation)
 hevy_api_key = Column(String(100))               # per-user Hevy REST API key
@@ -206,6 +212,13 @@ preferred_cuisines / preferred_exercises / exercises_to_avoid  # JSON arrays
 onboarding_complete = Column(Boolean, default=False)
 invite_code_used = Column(String(50))
 weekly_email_enabled = Column(Boolean, default=True)
+bf_goal_pct = Column(Float)                      # body fat % goal (shown in sidebar)
+vo2max_goal = Column(Float)                      # VO2 max goal (shown in sidebar)
+goal_date = Column(Date)                         # target date for goals (shown in sidebar)
+# Telegram fields (added via Alembic migration 4a3252a537f4)
+telegram_chat_id = Column(BigInteger, unique=True, index=True)
+telegram_username = Column(String(100))
+telegram_connected_at = Column(DateTime)
 ```
 
 ---
@@ -336,6 +349,35 @@ Garmin **direct login has been removed** (`garmin_service.py` is now a stub). Da
 ### Hevy
 Per-user API key stored in `UserProfile.hevy_api_key` (set during onboarding or Settings). Uses `HevyAPIClient` with httpx calls to `api.hevyapp.com/v1`.
 
+### Telegram
+Full Telegram bot integration. Users link their account using their `mcp_api_key`.
+
+**Auth flow:**
+- `/connect <mcp_api_key>` in Telegram → `telegram_service._find_by_mcp_key()` looks up the profile → saves `telegram_chat_id`, `telegram_username`, `telegram_connected_at` to `UserProfile`
+- Deep-link from Settings: `https://t.me/{TELEGRAM_BOT_USERNAME}?start={mcp_api_key}` → bot receives `/start <key>` and auto-connects
+
+**Message handling (`telegram_service.py`):**
+- `handle_update()` — dispatches commands vs. natural text
+- Commands: `/start`, `/connect`, `/disconnect`, `/help`, `/status`
+- Natural text → `run_claude_tool_loop()` — sets `_current_user_id` ContextVar, calls `list_tools()` + `call_tool()` from `mcp_server.py` (same 14 tools), max 10 iterations
+- Responses split at 4096-char Telegram limit with paragraph-aware chunking
+
+**Webhook:**
+- `POST /api/telegram/webhook` is public; validated by `X-Telegram-Bot-Api-Secret-Token` header against `TELEGRAM_WEBHOOK_SECRET`
+- Register once: `cd backend && python scripts/setup_telegram_webhook.py`
+
+**Environment variables:**
+```ini
+TELEGRAM_BOT_TOKEN=<token from @BotFather>
+TELEGRAM_BOT_USERNAME=your_bot_name   # without @
+TELEGRAM_WEBHOOK_SECRET=<random string>
+```
+
+**Frontend (Settings → Integrations):**
+- Shows connection status (connected @username or not connected)
+- Deep-link button opens bot directly with auto-connect
+- Disconnect button calls `DELETE /api/telegram/disconnect`
+
 ---
 
 ## Frontend Patterns
@@ -382,7 +424,12 @@ STRAVA_CLIENT_SECRET=
 STRAVA_REDIRECT_URI=http://localhost:8000/api/strava/auth/callback
 
 RESEND_API_KEY=                        # Required for magic link auth + email delivery
-RESEND_FROM_EMAIL=HealthCoach <onboarding@resend.dev>
+RESEND_FROM_EMAIL=Health Coach <onboarding@resend.dev>
+
+# Telegram bot (optional)
+TELEGRAM_BOT_TOKEN=                    # Token from @BotFather
+TELEGRAM_BOT_USERNAME=                 # Bot username without @
+TELEGRAM_WEBHOOK_SECRET=               # Random string to validate webhook requests
 
 # Database — PostgreSQL required
 DATABASE_URL=postgresql://localhost/health_coach_dev
@@ -401,7 +448,7 @@ MCP_API_KEY=
 - `HEVY_API_KEY` — per-user; stored in `UserProfile.hevy_api_key`, set during onboarding or Settings
 - `SMTP_HOST/PORT/USER/PASSWORD`, `EMAIL_FROM`, `EMAIL_RECIPIENTS_*` — SMTP was replaced by Resend
 
-`GET /api/settings/status` returns integration status + the caller's `mcp_api_key` from their UserProfile. Auto-generates a key if none exists.
+`GET /api/settings/status` returns integration status + the caller's `mcp_api_key` from their UserProfile. Auto-generates a key if none exists. Also returns `telegram_connected` (bool) and `telegram_bot_username` (for building the deep-link).
 
 ---
 
@@ -411,7 +458,8 @@ MCP_API_KEY=
 - Iterates all active users with `weekly_email_enabled=True`
 - For each user: gathers last 7 days of WeightLog, HevyWorkout, NutritionLog, DailyHealthCache
 - Computes weight avg + trend, workout list + duration, days logged + avg kcal/protein vs target, avg steps/sleep/resting HR
-- Sends HTML email via Resend
+- Sends HTML email via Resend **only to the user** — no CC
+- If profile is not found for a user, logs an error and skips that user (no fallback to admin email)
 
 **Scheduler**: `_start_scheduler()` in `main.py` fires every Sunday 19:30 ET.
 
@@ -459,6 +507,10 @@ All admin routes use `require_admin()` dependency. The `/admin` page is only sho
 13. **Garmin rate limit is account-level**: The 429 from Garmin is account-level. Do not suggest changing IP/hotspot. Use paste-data import.
 14. **Alembic for schema changes**: Never use `Base.metadata.create_all()` as the migration path for an existing database. Always create an Alembic migration.
 15. **Admin bootstrap**: The `ADMIN_EMAIL` user needs no invite code on first login. All other new users require one.
+16. **Telegram webhook is public**: `/api/telegram/webhook` must stay public (no JWT). It is secured by `X-Telegram-Bot-Api-Secret-Token` header validation against `TELEGRAM_WEBHOOK_SECRET`.
+17. **Telegram reuses MCP tools**: The Telegram tool-use loop calls `list_tools()` and `call_tool()` from `mcp_server.py` — do not duplicate tool implementations in `telegram_service.py`.
+18. **Weekly summary no CC**: `send_weekly_summary_for_user()` sends only to the user's email. No CC. If profile is missing, log and skip — never fall back to admin email.
+19. **Sidebar goals are dynamic**: The BF% goal, VO2 max goal, and goal date in the sidebar footer are fetched live from `UserProfile` via `getProfile()` — not hardcoded.
 
 ---
 
@@ -484,6 +536,7 @@ All admin routes use `require_admin()` dependency. The `/admin` page is only sho
 2. Add handler `_<tool_name>(args)` using `_get_user_id()` to scope all DB queries
 3. Add dispatch case to `call_tool()`
 4. If the tool calls Claude API (slow), wrap with `await asyncio.to_thread(...)`
+5. The Telegram bot automatically picks up the new tool — no changes needed in `telegram_service.py`
 
 ### Schema change
 1. Edit `backend/database/models.py`
