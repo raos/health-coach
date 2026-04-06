@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     resend_api_key: str = ""
-    resend_from_email: str = "HealthCoach <onboarding@resend.dev>"
+    resend_from_email: str = "Health Coach <onboarding@resend.dev>"
 
     # Database — defaults to local Postgres for multi-tenant branch
     database_url: str = "postgresql://localhost/health_coach_dev"

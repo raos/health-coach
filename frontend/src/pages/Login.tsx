@@ -252,7 +252,7 @@ function SignUpTab() {
     return (
       <div className="space-y-4">
         <p className="text-sm text-gray-500">
-          HealthCoach is invite-only. Enter the invite code you received to get started.
+          <b>Health Coach</b> is invite-only. Enter the invite code you received to get started.
         </p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Invite code</label>

@@ -267,12 +267,12 @@ async def send_magic_link(payload: MagicLinkRequest, request: Request, db: Sessi
     try:
         from services.email_service import send_html_email
         html = f"""
-        <p>Click the link below to sign in to HealthCoach. This link expires in 15 minutes.</p>
+        <p>Click the link below to sign in to <b>Health Coach</b>. This link expires in 15 minutes.</p>
         <p><a href="{magic_url}" style="background:#4f46e5;color:#fff;padding:12px 24px;
-           border-radius:8px;text-decoration:none;font-weight:600;">Sign in to HealthCoach</a></p>
+           border-radius:8px;text-decoration:none;font-weight:600;">Sign in to <b>Health Coach</b></a></p>
         <p style="color:#6b7280;font-size:12px;">If you didn't request this, ignore this email.</p>
         """
-        send_html_email(to_address=email, subject="Sign in to HealthCoach", html=html)
+        send_html_email(to_address=email, subject="Sign in to Health Coach", html=html)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send email: {e}")
 

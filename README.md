@@ -1,4 +1,4 @@
-# HealthCoach
+# Health Coach
 
 A multi-tenant AI health coaching app. Each user gets their own AI coach, nutritionist, and health advisor, powered by Claude AI, with per-user integrations for Strava, Garmin Connect, and Hevy — and a personal MCP server so you can log meals and query your health data directly from Claude on your phone.
 

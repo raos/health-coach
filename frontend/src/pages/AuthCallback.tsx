@@ -26,7 +26,7 @@ export default function AuthCallback() {
       <div className="text-center">
         <div className="flex items-center justify-center gap-3 mb-4">
           <Activity className="w-7 h-7 text-blue-400 animate-pulse" />
-          <span className="text-xl font-bold text-white">HealthCoach</span>
+          <span className="text-xl font-bold text-white">Health Coach</span>
         </div>
         <p className="text-gray-400 text-sm">Signing you in…</p>
       </div>

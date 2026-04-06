@@ -72,7 +72,7 @@ def export_data(
         add("coach_conversations", db.query(CoachConversation).filter(CoachConversation.user_id == user_id).all())
 
         readme = (
-            "HealthCoach Data Export\n"
+            "Health Coach Data Export\n"
             "========================\n"
             f"Exported: {datetime.utcnow().isoformat()} UTC\n\n"
             "Files:\n"
