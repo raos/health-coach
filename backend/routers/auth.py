@@ -68,10 +68,13 @@ def _get_or_create_user(db: Session, email: str, name: str, picture: str, reques
 
     # Auto-create UserProfile with a fresh MCP API key
     if not db.query(UserProfile).filter(UserProfile.user_id == user.id).first():
+        from database.encryption import hmac_lookup as _hmac_lookup
+        _new_mcp_key = str(uuid.uuid4())
         profile = UserProfile(
             user_id=user.id,
             email=email,
-            mcp_api_key=str(uuid.uuid4()),
+            mcp_api_key=_new_mcp_key,
+            mcp_api_key_lookup=_hmac_lookup(_new_mcp_key),
             onboarding_complete=is_admin,  # admin skips onboarding; new users must complete it
             weekly_email_enabled=True,
         )
@@ -307,10 +310,13 @@ def verify_magic_link(token: str = Query(...), db: Session = Depends(get_db)):
         db.add(user)
         db.flush()
         if not db.query(UserProfile).filter(UserProfile.user_id == user.id).first():
+            from database.encryption import hmac_lookup as _hmac_lookup
+            _new_mcp_key = str(uuid.uuid4())
             db.add(UserProfile(
                 user_id=user.id,
                 email=email,
-                mcp_api_key=str(uuid.uuid4()),
+                mcp_api_key=_new_mcp_key,
+                mcp_api_key_lookup=_hmac_lookup(_new_mcp_key),
                 onboarding_complete=user.is_admin,
                 weekly_email_enabled=True,
             ))

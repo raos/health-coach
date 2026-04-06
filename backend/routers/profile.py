@@ -59,8 +59,11 @@ def generate_mcp_key(
     user_id: uuid.UUID = Depends(get_user_id),
 ):
     """Generate (or regenerate) the per-user MCP API key."""
+    from database.encryption import hmac_lookup as _hmac_lookup
     profile = _get_or_create_profile(db, user_id)
-    profile.mcp_api_key = str(uuid.uuid4())
+    _new_mcp_key = str(uuid.uuid4())
+    profile.mcp_api_key = _new_mcp_key
+    profile.mcp_api_key_lookup = _hmac_lookup(_new_mcp_key)
     db.commit()
     return {"mcp_api_key": profile.mcp_api_key}
 
@@ -73,7 +76,10 @@ def complete_onboarding(
     profile = _get_or_create_profile(db, user_id)
     profile.onboarding_complete = True
     if not profile.mcp_api_key:
-        profile.mcp_api_key = str(uuid.uuid4())
+        from database.encryption import hmac_lookup as _hmac_lookup
+        _new_mcp_key = str(uuid.uuid4())
+        profile.mcp_api_key = _new_mcp_key
+        profile.mcp_api_key_lookup = _hmac_lookup(_new_mcp_key)
     db.commit()
 
     # Issue a refreshed JWT with onboarding_complete=True

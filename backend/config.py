@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # Per-user keys are stored in UserProfile.mcp_api_key and are the primary auth mechanism.
     mcp_api_key: str = ""
 
+    # Field-level encryption key (AES-256-GCM).
+    # Must be a 64-character hex string (32 bytes).
+    # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+    field_encryption_key: str = ""
+
     # Telegram Bot
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""   # e.g. "ai_healthcoachbot" (no @)

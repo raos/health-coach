@@ -256,7 +256,8 @@ def push_data(
     """
     from config import settings
     from database.models import UserProfile as UP
-    profile = db.query(UP).filter(UP.mcp_api_key == key).first()
+    from database.encryption import hmac_lookup as _hmac_lookup
+    profile = db.query(UP).filter(UP.mcp_api_key_lookup == _hmac_lookup(key)).first()
     if not profile:
         if not settings.mcp_api_key or key != settings.mcp_api_key:
             raise HTTPException(status_code=401, detail="Invalid API key")

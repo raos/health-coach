@@ -91,7 +91,8 @@ def _split_message(text: str, limit: int = MAX_MSG_LEN) -> list[str]:
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _find_by_mcp_key(db: Session, mcp_key: str) -> Optional[UserProfile]:
-    return db.query(UserProfile).filter(UserProfile.mcp_api_key == mcp_key).first()
+    from database.encryption import hmac_lookup
+    return db.query(UserProfile).filter(UserProfile.mcp_api_key_lookup == hmac_lookup(mcp_key)).first()
 
 
 def _find_by_chat_id(db: Session, chat_id: int) -> Optional[UserProfile]:

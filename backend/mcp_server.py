@@ -1081,7 +1081,8 @@ async def sse_endpoint(request: Request):
     db = SessionLocal()
     try:
         from database.models import UserProfile as _UP
-        profile = db.query(_UP).filter(_UP.mcp_api_key == key).first()
+        from database.encryption import hmac_lookup as _hmac_lookup
+        profile = db.query(_UP).filter(_UP.mcp_api_key_lookup == _hmac_lookup(key)).first()
         if profile:
             user_id = profile.user_id
         else:

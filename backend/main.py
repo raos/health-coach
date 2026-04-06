@@ -120,7 +120,10 @@ def settings_status(
     profile = db.query(_UP).filter(_UP.user_id == user_id).first()
     # Auto-generate MCP key for existing users who don't have one yet
     if profile and not profile.mcp_api_key:
-        profile.mcp_api_key = str(uuid.uuid4())
+        from database.encryption import hmac_lookup as _hmac_lookup
+        _new_mcp_key = str(uuid.uuid4())
+        profile.mcp_api_key = _new_mcp_key
+        profile.mcp_api_key_lookup = _hmac_lookup(_new_mcp_key)
         db.commit()
     return {
         "hevy": bool(profile.hevy_api_key if profile else None),

@@ -7,6 +7,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 
+from database.encryption import EncryptedString
+
 
 class Base(DeclarativeBase):
     pass
@@ -234,8 +236,8 @@ class OAuthToken(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     service = Column(String(50), nullable=False)
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text)
+    access_token = Column(EncryptedString, nullable=False)
+    refresh_token = Column(EncryptedString)
     expires_at = Column(Integer)  # Unix timestamp
     athlete_id = Column(String(50))
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -283,8 +285,12 @@ class UserProfile(Base):
     lunch_pref = Column(Text, nullable=True)
     dinner_pref = Column(Text, nullable=True)
     # Multi-tenant new fields
-    mcp_api_key = Column(String(100), nullable=True, unique=True, index=True)
-    hevy_api_key = Column(String(100), nullable=True)
+    # mcp_api_key stores the encrypted key value (shown to user in Settings).
+    # mcp_api_key_lookup stores an HMAC-SHA256 of the plaintext key and is used
+    # for all equality lookups — encrypted ciphertexts are not equality-queryable.
+    mcp_api_key = Column(EncryptedString, nullable=True, unique=True)
+    mcp_api_key_lookup = Column(String(64), nullable=True, unique=True, index=True)
+    hevy_api_key = Column(EncryptedString, nullable=True)
     training_days_strength = Column(Integer, default=3)
     training_days_cardio = Column(Integer, default=2)
     training_days_rest = Column(Integer, default=2)
