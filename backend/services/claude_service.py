@@ -1276,7 +1276,7 @@ def parse_meal_description(description: str) -> dict:
         '  "protein_g": float grams of protein\n'
         '  "carbs_g": float grams of carbs\n'
         '  "fat_g": float grams of fat\n'
-        "Be generous but realistic with estimates. The user is vegetarian + eggs, no meat/seafood."
+        "Be generous but realistic with estimates."
     )
     response = client.messages.create(
         model="claude-sonnet-4-6",
