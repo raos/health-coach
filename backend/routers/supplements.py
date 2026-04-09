@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database.engine import get_db
 from database.models import Supplement, SupplementLog
 from dependencies import get_user_id
+from services import supplement_service
 
 router = APIRouter(prefix="/api/supplements", tags=["supplements"])
 
@@ -138,28 +139,12 @@ def log_supplement_taken(
     db: Session = Depends(get_db),
     user_id: uuid.UUID = Depends(get_user_id),
 ):
-    s = db.query(Supplement).filter(
-        Supplement.id == payload.supplement_id,
-        Supplement.user_id == user_id,
-        Supplement.is_active == True,
-    ).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Supplement not found")
-
     target = date_type.fromisoformat(payload.date) if payload.date else date_type.today()
-
-    existing = db.query(SupplementLog).filter(
-        SupplementLog.user_id == user_id,
-        SupplementLog.supplement_id == payload.supplement_id,
-        SupplementLog.date == target,
-    ).first()
-    if existing:
-        return _log_dict(existing)
-
-    log = SupplementLog(user_id=user_id, supplement_id=payload.supplement_id, date=target)
-    db.add(log)
-    db.commit()
-    db.refresh(log)
+    log, _already_existed, s = supplement_service.log_supplement_by_id(
+        db, user_id, payload.supplement_id, target
+    )
+    if s is None:
+        raise HTTPException(status_code=404, detail="Supplement not found")
     return _log_dict(log)
 
 

@@ -42,25 +42,11 @@ from database.models import (
     WeightLog, HevyWorkout, HevyExerciseSet,
     TrainingPlan, GarminDailyCache, BodyCompositionLog,
     Vo2MaxLog, NutritionLog, HealthInsight, UserProfile,
-    MealPlan, Supplement, SupplementLog, WeeklyCheckin,
+    MealPlan,
 )
 
 server = Server("health-coach")
 sse = SseServerTransport("/mcp/messages")
-
-# Default meal preference strings (matches Nutrition.tsx defaults)
-_BREAKFAST_PREFS = (
-    "Rotate among these options — keep them quick, no cooking:\n"
-    "1. Overnight oats: rolled oats + whey protein + unsweetened almond milk + hemp/pumpkin seeds + berries\n"
-    "2. Protein smoothie: whey protein + creatine + frozen fruit + non-fat Greek yogurt + hemp/pumpkin seeds + unsweetened almond milk\n"
-    "3. Eggs + toast + cottage cheese: 2-3 pasture-raised eggs + Dave's Killer Bread + cottage cheese\n"
-    "No traditional Indian breakfast (no idli, dosa, upma)."
-)
-_LUNCH_PREFS = "Lunch is usually previous night's dinner"
-_DINNER_PREFS = (
-    "South Indian home cooking: sambar with rice, kootu, poriyal, rasam, dal tadka, chana masala, "
-    "rajma, paneer dishes, egg curries. Occasional non-Indian (pasta, grain bowls) 1-2x/week is fine."
-)
 
 
 @server.list_tools()
@@ -68,45 +54,27 @@ async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="log_meal",
-            description="Log a meal with estimated macros. Use this after eating to track nutrition.",
+            description=(
+                "Log a meal by describing it in plain text. Claude will estimate the macros automatically. "
+                "Use this after eating to track nutrition."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "meal_type": {
+                    "description": {
                         "type": "string",
-                        "enum": ["breakfast", "lunch", "dinner", "snack"],
-                        "description": "Type of meal",
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Name of the meal or food (e.g. 'Overnight oats with berries')",
-                    },
-                    "estimated_kcal": {
-                        "type": "integer",
-                        "description": "Estimated calories",
-                    },
-                    "estimated_protein_g": {
-                        "type": "number",
-                        "description": "Estimated protein in grams",
-                    },
-                    "estimated_carbs_g": {
-                        "type": "number",
-                        "description": "Estimated carbohydrates in grams",
-                    },
-                    "estimated_fat_g": {
-                        "type": "number",
-                        "description": "Estimated fat in grams",
+                        "description": (
+                            "Natural-language description of what was eaten "
+                            "(e.g. 'Bowl of overnight oats with berries and hemp seeds'). "
+                            "Include portion sizes or context if known."
+                        ),
                     },
                     "date": {
                         "type": "string",
                         "description": "ISO date string (YYYY-MM-DD). Defaults to today.",
                     },
-                    "description": {
-                        "type": "string",
-                        "description": "Optional description or notes about the meal",
-                    },
                 },
-                "required": ["meal_type", "name", "estimated_kcal", "estimated_protein_g", "estimated_carbs_g", "estimated_fat_g"],
+                "required": ["description"],
             },
         ),
         types.Tool(
@@ -358,31 +326,26 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 # ── Tool implementations ──────────────────────────────────────────────────────
 
 async def _log_meal(args: dict[str, Any]) -> list[types.TextContent]:
+    from services import nutrition_service
+    description = args.get("description", "").strip()
+    if not description:
+        return [types.TextContent(type="text", text="description is required.")]
+
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
     user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        row = NutritionLog(
-            user_id=user_id,
-            date=target_date,
-            meal_type=args["meal_type"],
-            name=args["name"],
-            description=args.get("description"),
-            kcal=int(args["estimated_kcal"]),
-            protein_g=float(args["estimated_protein_g"]),
-            carbs_g=float(args["estimated_carbs_g"]),
-            fat_g=float(args["estimated_fat_g"]),
-            source="mcp",
-            logged_at=datetime.utcnow(),
+        row = await asyncio.to_thread(
+            nutrition_service.log_meal, db, user_id, description, target_date, "mcp"
         )
-        db.add(row)
-        db.commit()
         text = (
-            f"Logged {args['name']} ({args['meal_type']}) on {target_date.isoformat()}. "
+            f"Logged {row.name} ({row.meal_type}) on {target_date.isoformat()}. "
             f"Macros: {row.kcal} kcal | P: {row.protein_g}g | C: {row.carbs_g}g | F: {row.fat_g}g"
         )
+    except Exception as e:
+        text = f"Failed to log meal: {e}"
     finally:
         db.close()
     return [types.TextContent(type="text", text=text)]
@@ -442,9 +405,9 @@ async def _generate_meal_plan(args: dict[str, Any]) -> list[types.TextContent]:
             claude_service.generate_meal_plan,
             db,
             calorie_target,
-            _BREAKFAST_PREFS,
-            _LUNCH_PREFS,
-            _DINNER_PREFS,
+            None,
+            None,
+            None,
             user_id,
         )
 
@@ -618,14 +581,38 @@ async def _get_exercise_stats(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextContent]:
     from services import claude_service
+    from sqlalchemy import desc as sa_desc
     user_id = _get_user_id()
 
     strength_days = int(args.get("strength_days", 4))
     cardio_days = int(args.get("cardio_days", 2))
     rest_days = int(args.get("rest_days", 1))
+    force = bool(args.get("force", False))
 
     db = SessionLocal()
     try:
+        # Check context_hash cache (same logic as router)
+        context_hash = claude_service.build_context_hash(db, user_id=user_id)
+        config_str = f"{strength_days}s{cardio_days}c{rest_days}r"
+        context_hash = str(user_id)[:8] + "_" + context_hash + config_str
+
+        if not force:
+            existing = (
+                db.query(TrainingPlan)
+                .filter(
+                    TrainingPlan.user_id == user_id,
+                    TrainingPlan.context_hash == context_hash,
+                    TrainingPlan.is_active == True,
+                )
+                .order_by(sa_desc(TrainingPlan.generated_at))
+                .first()
+            )
+            if existing:
+                return [types.TextContent(
+                    type="text",
+                    text="Training plan is already up to date (no changes to stats or config since last generation). Open the app to view it.",
+                )]
+
         plan_data = await asyncio.to_thread(
             claude_service.generate_training_plan,
             db,
@@ -638,10 +625,7 @@ async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextConten
         week_start = plan_data.get("week_start", str(date.today()))
 
         # Persist to DB (deactivate old for this user)
-        q_tp = db.query(TrainingPlan)
-        if user_id is not None:
-            q_tp = q_tp.filter(TrainingPlan.user_id == user_id)
-        q_tp.update({"is_active": False})
+        db.query(TrainingPlan).filter(TrainingPlan.user_id == user_id).update({"is_active": False})
         try:
             ws = date.fromisoformat(week_start)
         except ValueError:
@@ -651,6 +635,7 @@ async def _generate_training_plan(args: dict[str, Any]) -> list[types.TextConten
             user_id=user_id,
             week_start=ws,
             plan_json=json.dumps(plan_data),
+            context_hash=context_hash,
             is_active=True,
         )
         db.add(plan)
@@ -911,6 +896,7 @@ async def _get_meal_plan_for_day(args: dict[str, Any]) -> list[types.TextContent
 
 
 async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
+    from services import supplement_service
     supplement_name = args.get("supplement_name", "").strip()
     if not supplement_name:
         return [types.TextContent(type="text", text="supplement_name is required.")]
@@ -921,43 +907,15 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
 
     db = SessionLocal()
     try:
-        # Find existing active supplement (case-insensitive, scoped to user)
-        q_supp = db.query(Supplement).filter(Supplement.is_active == True)
-        if user_id is not None:
-            q_supp = q_supp.filter(Supplement.user_id == user_id)
-        supplements = q_supp.all()
-        match = next(
-            (s for s in supplements if s.name.lower() == supplement_name.lower()), None
+        log, already_existed, match, supplement_created = supplement_service.log_supplement_by_name(
+            db, user_id, supplement_name, target_date
         )
-
-        if not match:
-            match = Supplement(user_id=user_id, name=supplement_name)
-            db.add(match)
-            db.commit()
-            db.refresh(match)
-            created = True
-        else:
-            created = False
-
-        q_existing = db.query(SupplementLog).filter(
-            SupplementLog.supplement_id == match.id,
-            SupplementLog.date == target_date,
-        )
-        if user_id is not None:
-            q_existing = q_existing.filter(SupplementLog.user_id == user_id)
-        existing = q_existing.first()
-
-        if existing:
+        if already_existed:
             return [types.TextContent(
                 type="text",
                 text=f"✓ {match.name} was already logged for {target_date}.",
             )]
-
-        log = SupplementLog(user_id=user_id, supplement_id=match.id, date=target_date)
-        db.add(log)
-        db.commit()
-
-        prefix = f"Added '{match.name}' to your supplement list and logged" if created else "Logged"
+        prefix = f"Added '{match.name}' to your supplement list and logged" if supplement_created else "Logged"
         dosage_str = f" ({match.dosage})" if match.dosage else ""
         return [types.TextContent(
             type="text",
@@ -968,21 +926,16 @@ async def _log_supplement(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _get_supplement_log(args: dict[str, Any]) -> list[types.TextContent]:
+    from services import supplement_service
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
     user_id = _get_user_id()
 
     db = SessionLocal()
     try:
-        q_supp = db.query(Supplement).filter(Supplement.is_active == True)
-        if user_id is not None:
-            q_supp = q_supp.filter(Supplement.user_id == user_id)
-        all_supplements = q_supp.all()
-
-        q_log = db.query(SupplementLog).filter(SupplementLog.date == target_date)
-        if user_id is not None:
-            q_log = q_log.filter(SupplementLog.user_id == user_id)
-        taken_ids = {log.supplement_id for log in q_log.all()}
+        all_supplements, taken_ids = supplement_service.get_supplement_status_for_date(
+            db, user_id, target_date
+        )
 
         if not all_supplements:
             return [types.TextContent(type="text", text="No supplements configured yet.")]
@@ -1009,35 +962,14 @@ async def _get_supplement_log(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent]:
-    def _monday(d: date) -> date:
-        return d - timedelta(days=d.weekday())
-
-    week_start = _monday(date.today())
+    from services import checkin_service
     user_id = _get_user_id()
     db = SessionLocal()
     try:
-        # Validate ratings
-        for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level"):
-            val = args.get(field)
-            if val is not None and not (1 <= int(val) <= 5):
-                return [types.TextContent(type="text", text=f"Error: {field} must be between 1 and 5.")]
-
-        q = db.query(WeeklyCheckin).filter(WeeklyCheckin.week_start == week_start)
-        if user_id is not None:
-            q = q.filter(WeeklyCheckin.user_id == user_id)
-        existing = q.first()
-        if existing:
-            for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level", "notes"):
-                val = args.get(field)
-                if val is not None:
-                    setattr(existing, field, val)
-            db.commit()
-            db.refresh(existing)
-            row = existing
-        else:
-            row = WeeklyCheckin(
-                user_id=user_id,
-                week_start=week_start,
+        try:
+            row = checkin_service.upsert_weekly_checkin(
+                db,
+                user_id,
                 training_adherence=args.get("training_adherence"),
                 energy_level=args.get("energy_level"),
                 sleep_quality=args.get("sleep_quality"),
@@ -1045,12 +977,11 @@ async def _submit_weekly_checkin(args: dict[str, Any]) -> list[types.TextContent
                 stress_level=args.get("stress_level"),
                 notes=args.get("notes"),
             )
-            db.add(row)
-            db.commit()
-            db.refresh(row)
+        except ValueError as e:
+            return [types.TextContent(type="text", text=f"Error: {e}")]
 
         labels = {1: "★☆☆☆☆", 2: "★★☆☆☆", 3: "★★★☆☆", 4: "★★★★☆", 5: "★★★★★"}
-        lines = [f"✓ Weekly check-in saved for week of {week_start}", ""]
+        lines = [f"✓ Weekly check-in saved for week of {row.week_start}", ""]
         for field, title in [
             ("training_adherence", "Training adherence"),
             ("energy_level", "Energy levels"),

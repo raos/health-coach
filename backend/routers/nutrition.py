@@ -12,6 +12,7 @@ from dependencies import get_user_id
 from pydantic import BaseModel
 from schemas.nutrition import MealPlanResponse, RegenerateDayRequest, GenerateMealPlanRequest
 from services import claude_service
+from services import nutrition_service
 
 router = APIRouter(prefix="/api/nutrition", tags=["nutrition"])
 
@@ -165,29 +166,12 @@ def log_meal_from_description(
     if not __import__("config").settings.anthropic_api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured.")
 
-    try:
-        parsed = claude_service.parse_meal_description(payload.description)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse meal description: {e}")
-
     target_date = date_type.fromisoformat(payload.date) if payload.date else date_type.today()
 
-    entry = NutritionLog(
-        user_id=user_id,
-        date=target_date,
-        meal_type=parsed.get("meal_type", "snack"),
-        name=parsed.get("name", payload.description[:60]),
-        description=payload.description,
-        kcal=int(parsed.get("kcal", 0)),
-        protein_g=float(parsed.get("protein_g", 0)),
-        carbs_g=float(parsed.get("carbs_g", 0)),
-        fat_g=float(parsed.get("fat_g", 0)),
-        source="web",
-        logged_at=datetime.utcnow(),
-    )
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
+    try:
+        entry = nutrition_service.log_meal(db, user_id, payload.description, target_date, source="web")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse meal description: {e}")
 
     return {
         "id": entry.id,

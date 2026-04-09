@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,12 +9,10 @@ from sqlalchemy import desc
 from database.engine import get_db
 from database.models import WeeklyCheckin
 from dependencies import get_user_id
+from services import checkin_service
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
 
-
-def _monday_of_week(d: date) -> date:
-    return d - timedelta(days=d.weekday())
 
 
 def _checkin_dict(c: WeeklyCheckin) -> dict:
@@ -48,40 +46,20 @@ def upsert_checkin(
     db: Session = Depends(get_db),
     user_id: uuid.UUID = Depends(get_user_id),
 ):
-    week_start = payload.week_start or _monday_of_week(date.today())
-
-    for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level"):
-        val = getattr(payload, field)
-        if val is not None and not (1 <= val <= 5):
-            raise HTTPException(status_code=422, detail=f"{field} must be between 1 and 5")
-
-    existing = db.query(WeeklyCheckin).filter(
-        WeeklyCheckin.user_id == user_id,
-        WeeklyCheckin.week_start == week_start,
-    ).first()
-
-    if existing:
-        for field in ("training_adherence", "energy_level", "sleep_quality", "diet_adherence", "stress_level", "notes"):
-            val = getattr(payload, field)
-            if val is not None:
-                setattr(existing, field, val)
-        db.commit()
-        db.refresh(existing)
-        return _checkin_dict(existing)
-
-    row = WeeklyCheckin(
-        user_id=user_id,
-        week_start=week_start,
-        training_adherence=payload.training_adherence,
-        energy_level=payload.energy_level,
-        sleep_quality=payload.sleep_quality,
-        diet_adherence=payload.diet_adherence,
-        stress_level=payload.stress_level,
-        notes=payload.notes,
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+    try:
+        row = checkin_service.upsert_weekly_checkin(
+            db,
+            user_id,
+            training_adherence=payload.training_adherence,
+            energy_level=payload.energy_level,
+            sleep_quality=payload.sleep_quality,
+            diet_adherence=payload.diet_adherence,
+            stress_level=payload.stress_level,
+            notes=payload.notes,
+            week_start=payload.week_start,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return _checkin_dict(row)
 
 
