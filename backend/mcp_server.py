@@ -189,13 +189,17 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="log_weight",
-            description="Log a body weight measurement.",
+            description="Log a body weight measurement, optionally with body fat percentage.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "weight_lbs": {
                         "type": "number",
                         "description": "Body weight in pounds",
+                    },
+                    "body_fat_pct": {
+                        "type": "number",
+                        "description": "Body fat percentage (optional, e.g. 18.5)",
                     },
                     "date": {
                         "type": "string",
@@ -774,6 +778,7 @@ async def _get_health_recommendations(args: dict[str, Any]) -> list[types.TextCo
 
 async def _log_weight(args: dict[str, Any]) -> list[types.TextContent]:
     weight_lbs = float(args["weight_lbs"])
+    body_fat_pct = float(args["body_fat_pct"]) if args.get("body_fat_pct") is not None else None
     raw_date = args.get("date")
     target_date = date.fromisoformat(raw_date) if raw_date else date.today()
     user_id = _get_user_id()
@@ -787,13 +792,17 @@ async def _log_weight(args: dict[str, Any]) -> list[types.TextContent]:
         if existing:
             old_weight = existing.weight_lbs
             existing.weight_lbs = weight_lbs
+            if body_fat_pct is not None:
+                existing.body_fat_pct = body_fat_pct
             db.commit()
-            text = f"Updated weight for {target_date.isoformat()}: {old_weight} lbs → {weight_lbs} lbs"
+            bf_str = f", BF% {body_fat_pct}%" if body_fat_pct is not None else ""
+            text = f"Updated weight for {target_date.isoformat()}: {old_weight} lbs → {weight_lbs} lbs{bf_str}"
         else:
-            row = WeightLog(user_id=user_id, date=target_date, weight_lbs=weight_lbs, source="mcp")
+            row = WeightLog(user_id=user_id, date=target_date, weight_lbs=weight_lbs, body_fat_pct=body_fat_pct, source="mcp")
             db.add(row)
             db.commit()
-            text = f"Logged weight: {weight_lbs} lbs on {target_date.isoformat()}"
+            bf_str = f", BF% {body_fat_pct}%" if body_fat_pct is not None else ""
+            text = f"Logged weight: {weight_lbs} lbs{bf_str} on {target_date.isoformat()}"
     finally:
         db.close()
     return [types.TextContent(type="text", text=text)]
