@@ -106,8 +106,8 @@ function TrajectoryChart({
             domain={["auto", "auto"]}
           />
           <Tooltip
-            formatter={(v: number) => [`${v.toFixed(1)}${unit}`]}
-            labelFormatter={(l: string) => l}
+            formatter={(v) => [`${Number(v).toFixed(1)}${unit}`]}
+            labelFormatter={(l) => String(l)}
           />
           <ReferenceLine x={today} stroke="#94a3b8" strokeDasharray="4 2" label={{ value: "Today", fontSize: 9, fill: "#94a3b8" }} />
           <Line dataKey="actual" stroke={color} strokeWidth={2} dot={false} name="Actual" connectNulls={false} />
