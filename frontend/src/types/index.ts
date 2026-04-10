@@ -2,6 +2,7 @@ export interface WeightLog {
   id: number;
   date: string;
   weight_lbs: number;
+  body_fat_pct?: number | null;
   notes?: string;
   source: string;
   created_at: string;
@@ -83,6 +84,7 @@ export interface UserProfile {
   height_inches: number | null;
   email: string;
   bf_goal_pct: number | null;
+  weight_goal_lbs?: number | null;
   vo2max_goal: number | null;
   goal_date: string | null;
   calorie_target: number | null;
@@ -136,4 +138,24 @@ export interface WeeklyCheckin {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TrajectoryPoint {
+  date: string;
+  value: number;
+}
+
+export interface MetricTrajectory {
+  actual: TrajectoryPoint[];
+  required: TrajectoryPoint[];
+  projected: TrajectoryPoint[] | null;
+  current: number;
+  goal: number;
+  weeks_delta: number;
+}
+
+export interface GoalProjection {
+  goal_date: string | null;
+  weight: MetricTrajectory | null;
+  bf_pct: MetricTrajectory | null;
 }

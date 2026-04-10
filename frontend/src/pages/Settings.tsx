@@ -743,7 +743,7 @@ export default function Settings() {
               {/* Goals */}
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Goals</h3>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Body Fat Goal (%)</label>
                     <input
@@ -753,6 +753,18 @@ export default function Settings() {
                       step="0.1"
                       min="5"
                       max="50"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Weight Goal (lbs)</label>
+                    <input
+                      type="number"
+                      value={profileForm.weight_goal_lbs ?? ""}
+                      onChange={(e) => handleFieldChange("weight_goal_lbs", e.target.value ? parseFloat(e.target.value) : null)}
+                      step="0.1"
+                      min="80"
+                      max="400"
                       className={inputClass}
                     />
                   </div>

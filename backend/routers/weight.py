@@ -25,6 +25,8 @@ def log_weight(
     ).first()
     if existing:
         existing.weight_lbs = payload.weight_lbs
+        if payload.body_fat_pct is not None:
+            existing.body_fat_pct = payload.body_fat_pct
         existing.notes = payload.notes
         existing.source = payload.source
         db.commit()

@@ -8,14 +8,15 @@ import ActivityFeed from "../components/dashboard/ActivityFeed";
 import QuickMetricsLog from "../components/dashboard/QuickMetricsLog";
 import WorkoutHeatmap from "../components/dashboard/WorkoutHeatmap";
 import Vo2GaugeCard from "../components/dashboard/Vo2GaugeCard";
+import GoalTrajectoryCard from "../components/dashboard/GoalTrajectoryCard";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 import ErrorBanner from "../components/shared/ErrorBanner";
-import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap } from "../api/dashboard";
+import { getDashboardSummary, getWeightTrend, getActivityFeed, getGoalProgress, getWorkoutHeatmap, getDashboardGoalProjection } from "../api/dashboard";
 import type { WorkoutDay } from "../api/dashboard";
 import { syncActivities } from "../api/coach";
 import { getProfile } from "../api/profile";
 import { convertWeight, weightUnit } from "../hooks/useMeasurement";
-import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile } from "../types";
+import type { DashboardSummary, WeightLog, ActivityFeedItem, GoalProgress as GoalProgressType, UserProfile, GoalProjection } from "../types";
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -27,22 +28,25 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [heatmapData, setHeatmapData] = useState<WorkoutDay[]>([]);
+  const [goalProjection, setGoalProjection] = useState<GoalProjection | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
       setError("");
-      const [s, wt, af, gp, hm] = await Promise.all([
+      const [s, wt, af, gp, hm, proj] = await Promise.all([
         getDashboardSummary(),
         getWeightTrend(90),
         getActivityFeed(10),
         getGoalProgress(),
         getWorkoutHeatmap(12),
+        getDashboardGoalProjection(),
       ]);
       setSummary(s);
       setWeightTrend(wt);
       setActivities(af);
       setGoalProgress(gp);
       setHeatmapData(hm);
+      setGoalProjection(proj);
     } catch {
       setError("Failed to load dashboard data. Make sure the backend is running.");
     } finally {
@@ -169,6 +173,7 @@ export default function Dashboard() {
               {currentVO2 !== null && hasVO2Goal && (
                 <Vo2GaugeCard vo2max={currentVO2} goal={summary!.goal_vo2max!} age={age} />
               )}
+              {goalProjection && <GoalTrajectoryCard data={goalProjection} />}
               <QuickMetricsLog onLogged={fetchAll} />
             </div>
           </div>

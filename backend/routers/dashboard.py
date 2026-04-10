@@ -8,6 +8,7 @@ from sqlalchemy import desc
 from database.engine import get_db
 from database.models import WeightLog, BodyCompositionLog, Vo2MaxLog, StravaActivity, HevyWorkout, UserProfile
 from dependencies import get_user_id
+from services import dashboard_service
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -292,3 +293,11 @@ def get_goal_progress(
         "vo2_goal": vo2_goal,
         "vo2_pct_complete": vo2_pct_complete,
     }
+
+
+@router.get("/goal-projection")
+def get_goal_projection(
+    db: Session = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_user_id),
+):
+    return dashboard_service.get_goal_projection(db, user_id)
