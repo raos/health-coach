@@ -96,7 +96,7 @@ def _validate_invite(db: Session, code: str) -> InviteCode | None:
     invite = db.query(InviteCode).filter(InviteCode.code == code.strip().upper()).first()
     if not invite:
         return None
-    if invite.expires_at and invite.expires_at < datetime.utcnow():
+    if invite.expires_at and invite.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         return None
     if invite.use_count >= invite.max_uses:
         return None
@@ -201,7 +201,7 @@ async def google_callback(
         # Mark invite as used
         if invite and is_new_user:
             invite.used_by = user.id
-            invite.used_at = datetime.utcnow()
+            invite.used_at = datetime.now(timezone.utc)
             invite.use_count = (invite.use_count or 0) + 1
             # Record on user profile
             profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
@@ -259,7 +259,7 @@ async def send_magic_link(payload: MagicLinkRequest, request: Request, db: Sessi
         id=uuid.uuid4(),
         email=email,
         token=raw_token,
-        expires_at=datetime.utcnow() + timedelta(minutes=15),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
         used=False,
     )
     db.add(ml)
@@ -286,7 +286,7 @@ async def send_magic_link(payload: MagicLinkRequest, request: Request, db: Sessi
 def verify_magic_link(token: str = Query(...), db: Session = Depends(get_db)):
     ml = db.query(MagicLinkToken).filter(MagicLinkToken.token == token).first()
     frontend = settings.frontend_url
-    if not ml or ml.used or ml.expires_at < datetime.utcnow():
+    if not ml or ml.used or ml.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         return RedirectResponse(f"{frontend}/login?error=invalid_magic_link", status_code=302)
 
     ml.used = True
@@ -353,7 +353,7 @@ def create_invite_code(
     code = payload.code.strip().upper() if payload.code.strip() else secrets.token_hex(4).upper()
     if db.query(InviteCode).filter(InviteCode.code == code).first():
         raise HTTPException(status_code=409, detail="Invite code already exists.")
-    expires_at = datetime.utcnow() + timedelta(days=payload.expires_days) if payload.expires_days else None
+    expires_at = datetime.now(timezone.utc) + timedelta(days=payload.expires_days) if payload.expires_days else None
     invite = InviteCode(
         id=uuid.uuid4(),
         code=code,
@@ -420,7 +420,7 @@ def logout(
     if user_id:
         db_user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
         if db_user:
-            db_user.last_logout_at = datetime.utcnow()
+            db_user.last_logout_at = datetime.now(timezone.utc)
             db.add(AuditLog(user_id=db_user.id, action="logout"))
             db.commit()
     return {"status": "ok"}
