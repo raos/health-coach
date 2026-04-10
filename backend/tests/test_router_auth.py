@@ -100,6 +100,40 @@ class TestLogout:
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 401
 
+    def test_token_issued_before_logout_is_rejected(self, client, db, test_user):
+        """Token issued before logout should be rejected after logout (session revocation)."""
+        from datetime import timedelta
+        from tests.conftest import make_jwt
+        user, _ = test_user
+
+        # Issue a token backdated by 1 minute (simulates a pre-logout token)
+        old_token = make_jwt(
+            user.id, user.email,
+            issued_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        # Perform logout (sets last_logout_at to now)
+        client.post(
+            "/api/auth/logout",
+            headers={"Authorization": f"Bearer {make_jwt(user.id, user.email)}"},
+        )
+        db.refresh(user)
+        assert user.last_logout_at is not None  # sanity check
+
+        # The old token should now be rejected because iat < last_logout_at.
+        # Use DELETE /api/account which goes through get_current_user (revocation-aware).
+        import json as _json
+        resp = client.request(
+            "DELETE",
+            "/api/account",
+            content=_json.dumps({"confirmation": "DELETE"}),
+            headers={
+                "Authorization": f"Bearer {old_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        assert resp.status_code == 401
+
 
 class TestRefreshToken:
     def test_returns_new_token(self, client, auth_headers, test_user):

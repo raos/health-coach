@@ -420,7 +420,7 @@ def logout(
     if user_id:
         db_user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
         if db_user:
-            db_user.last_logout_at = datetime.now(timezone.utc)
+            db_user.last_logout_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(AuditLog(user_id=db_user.id, action="logout"))
             db.commit()
     return {"status": "ok"}

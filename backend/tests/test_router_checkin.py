@@ -98,3 +98,22 @@ class TestGetCheckin:
     def test_requires_auth_history(self, client):
         resp = client.get("/api/checkin/history")
         assert resp.status_code == 401
+
+
+class TestUserIsolation:
+    def test_cannot_see_other_users_checkins(self, client, auth_headers, admin_user, db):
+        """test_user should not see admin_user's check-ins."""
+        from database.models import WeeklyCheckin
+        from datetime import date
+        admin, _ = admin_user
+        checkin = WeeklyCheckin(
+            user_id=admin.id,
+            week_start=date(2026, 4, 6),
+            training_adherence=5,
+        )
+        db.add(checkin)
+        db.commit()
+
+        resp = client.get("/api/checkin/history", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json() == []

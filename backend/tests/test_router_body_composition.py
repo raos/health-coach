@@ -68,3 +68,22 @@ class TestGetBodyComposition:
     def test_requires_auth_history(self, client):
         resp = client.get("/api/body-composition/history")
         assert resp.status_code == 401
+
+
+class TestUserIsolation:
+    def test_cannot_see_other_users_body_comp(self, client, auth_headers, admin_user, db):
+        """test_user should not see admin_user's body composition logs."""
+        from database.models import BodyCompositionLog
+        from datetime import date
+        admin, _ = admin_user
+        log = BodyCompositionLog(
+            user_id=admin.id,
+            date=date(2026, 4, 1),
+            body_fat_pct=15.0,
+        )
+        db.add(log)
+        db.commit()
+
+        resp = client.get("/api/body-composition/history", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json() == []

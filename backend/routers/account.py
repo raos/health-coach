@@ -120,7 +120,7 @@ def delete_account(
     if payload.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation must be the string 'DELETE'.")
 
-    current_user.deleted_at = datetime.now(timezone.utc)
+    current_user.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     current_user.is_active = False
     db.add(AuditLog(user_id=current_user.id, action="account_delete_requested"))
     db.commit()
