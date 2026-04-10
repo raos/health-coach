@@ -34,3 +34,6 @@ frontend/dist/
 
 # Git worktrees
 .worktrees/
+
+# Superpowers
+.superpowers/
