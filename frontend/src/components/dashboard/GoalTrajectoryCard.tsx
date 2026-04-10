@@ -105,11 +105,9 @@ function TrajectoryChart({
           domain={["auto", "auto"]}
         />
         <Tooltip
-          // @ts-expect-error Recharts v3 formatter type quirk
           formatter={(v: number) => [`${v.toFixed(1)}${unit}`]}
           labelFormatter={(l: string) => l}
         />
-        {/* @ts-expect-error Recharts v3 label prop type quirk */}
         <ReferenceLine x={today} stroke="#94a3b8" strokeDasharray="4 2" label={{ value: "Today", fontSize: 9, fill: "#94a3b8" }} />
         <Line dataKey="actual" stroke={color} strokeWidth={2} dot={false} name="Actual" connectNulls={false} />
         <Line dataKey="required" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Required" connectNulls />
