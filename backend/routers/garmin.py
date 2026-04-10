@@ -1,6 +1,6 @@
 import uuid
 import json
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -26,9 +26,9 @@ def _upsert_cache(db: Session, user_id: uuid.UUID, **kwargs) -> None:
         for k, v in kwargs.items():
             if v is not None:
                 setattr(existing, k, v)
-        existing.synced_at = datetime.utcnow()
+        existing.synced_at = datetime.now(timezone.utc)
     else:
-        db.add(DailyHealthCache(user_id=user_id, date=row_date, source=source, synced_at=datetime.utcnow(), **kwargs))
+        db.add(DailyHealthCache(user_id=user_id, date=row_date, source=source, synced_at=datetime.now(timezone.utc), **kwargs))
 
 
 @router.get("/sleep/range")
@@ -200,7 +200,7 @@ def paste_data_from_ui(
             existing.resting_hr = int(resting_hr)
         if sleep_duration_hours is not None:
             existing.sleep_duration_hours = sleep_duration_hours
-        existing.synced_at = datetime.utcnow()
+        existing.synced_at = datetime.now(timezone.utc)
     else:
         db.add(DailyHealthCache(
             user_id=user_id,
@@ -209,7 +209,7 @@ def paste_data_from_ui(
             steps=int(steps) if steps is not None else None,
             resting_hr=int(resting_hr) if resting_hr is not None else None,
             sleep_duration_hours=sleep_duration_hours,
-            synced_at=datetime.utcnow(),
+            synced_at=datetime.now(timezone.utc),
         ))
     db.commit()
 
@@ -283,7 +283,7 @@ def push_data(
                 val = getattr(record, field)
                 if val is not None:
                     setattr(existing, field, val)
-            existing.synced_at = datetime.utcnow()
+            existing.synced_at = datetime.now(timezone.utc)
         else:
             db.add(DailyHealthCache(
                 user_id=push_user_id,
@@ -296,7 +296,7 @@ def push_data(
                 light_min=record.light_min,
                 steps=record.steps,
                 resting_hr=record.resting_hr,
-                synced_at=datetime.utcnow(),
+                synced_at=datetime.now(timezone.utc),
             ))
         upserted_daily += 1
 

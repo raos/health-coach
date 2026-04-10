@@ -3,7 +3,7 @@ import io
 import json
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -74,7 +74,7 @@ def export_data(
         readme = (
             "Health Coach Data Export\n"
             "========================\n"
-            f"Exported: {datetime.utcnow().isoformat()} UTC\n\n"
+            f"Exported: {datetime.now(timezone.utc).isoformat()} UTC\n\n"
             "Files:\n"
             "  profile.json          — Your profile settings and goals\n"
             "  weight_logs.json      — Daily weight entries\n"
@@ -96,7 +96,7 @@ def export_data(
         db.commit()
 
     buf.seek(0)
-    filename = f"healthcoach_export_{datetime.utcnow().strftime('%Y%m%d')}.zip"
+    filename = f"healthcoach_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.zip"
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -120,7 +120,7 @@ def delete_account(
     if payload.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation must be the string 'DELETE'.")
 
-    current_user.deleted_at = datetime.utcnow()
+    current_user.deleted_at = datetime.now(timezone.utc)
     current_user.is_active = False
     db.add(AuditLog(user_id=current_user.id, action="account_delete_requested"))
     db.commit()

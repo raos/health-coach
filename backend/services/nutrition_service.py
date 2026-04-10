@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from sqlalchemy.orm import Session
 
 from database.models import NutritionLog
@@ -28,7 +28,7 @@ def log_meal(
         carbs_g=float(parsed.get("carbs_g", 0)),
         fat_g=float(parsed.get("fat_g", 0)),
         source=source,
-        logged_at=datetime.utcnow(),
+        logged_at=datetime.now(timezone.utc),
     )
     db.add(entry)
     db.commit()

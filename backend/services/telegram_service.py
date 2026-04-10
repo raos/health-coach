@@ -7,7 +7,7 @@ and a Claude tool-use loop that reuses all 14 MCP tools from mcp_server.py.
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import httpx
@@ -110,7 +110,7 @@ async def handle_start(chat_id: int, args: str) -> None:
             if profile:
                 profile.telegram_chat_id = chat_id
                 profile.telegram_username = None
-                profile.telegram_connected_at = datetime.utcnow()
+                profile.telegram_connected_at = datetime.now(timezone.utc)
                 db.commit()
                 await send_message(chat_id,
                     "✅ Connected! Your Telegram is linked to your Health Coach account.\n\n"
@@ -150,7 +150,7 @@ async def handle_connect(chat_id: int, username: Optional[str], mcp_key: str) ->
             return
         profile.telegram_chat_id = chat_id
         profile.telegram_username = username
-        profile.telegram_connected_at = datetime.utcnow()
+        profile.telegram_connected_at = datetime.now(timezone.utc)
         db.commit()
         await send_message(chat_id, "✅ Connected! Ask me anything about your health data.")
     finally:
