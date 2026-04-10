@@ -90,32 +90,47 @@ function TrajectoryChart({
   const chartData = buildChartData(metric);
 
   return (
-    <ResponsiveContainer width="100%" height={160}>
-      <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 10 }}
-          tickFormatter={(v: string) => v.slice(5)}
-          interval="preserveStartEnd"
-        />
-        <YAxis
-          tick={{ fontSize: 10 }}
-          width={38}
-          tickFormatter={(v: number) => `${v.toFixed(0)}${unit}`}
-          domain={["auto", "auto"]}
-        />
-        <Tooltip
-          formatter={(v: number) => [`${v.toFixed(1)}${unit}`]}
-          labelFormatter={(l: string) => l}
-        />
-        <ReferenceLine x={today} stroke="#94a3b8" strokeDasharray="4 2" label={{ value: "Today", fontSize: 9, fill: "#94a3b8" }} />
-        <Line dataKey="actual" stroke={color} strokeWidth={2} dot={false} name="Actual" connectNulls={false} />
-        <Line dataKey="required" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Required" connectNulls />
+    <div>
+      <ResponsiveContainer width="100%" height={160}>
+        <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 10 }}
+            tickFormatter={(v: string) => v.slice(5)}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            tick={{ fontSize: 10 }}
+            width={38}
+            tickFormatter={(v: number) => `${v.toFixed(0)}${unit}`}
+            domain={["auto", "auto"]}
+          />
+          <Tooltip
+            formatter={(v: number) => [`${v.toFixed(1)}${unit}`]}
+            labelFormatter={(l: string) => l}
+          />
+          <ReferenceLine x={today} stroke="#94a3b8" strokeDasharray="4 2" label={{ value: "Today", fontSize: 9, fill: "#94a3b8" }} />
+          <Line dataKey="actual" stroke={color} strokeWidth={2} dot={false} name="Actual" connectNulls={false} />
+          <Line dataKey="required" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Required" connectNulls />
+          {metric.projected && (
+            <Line dataKey="projected" stroke={color} strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Projected" connectNulls />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-4 h-0.5" style={{ backgroundColor: color }}></span> Actual
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-gray-400"></span> Required
+        </span>
         {metric.projected && (
-          <Line dataKey="projected" stroke={color} strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Projected" connectNulls />
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-4 h-0.5 border-t-2 border-dashed" style={{ borderColor: color }}></span> Projected
+          </span>
         )}
-      </LineChart>
-    </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
@@ -193,11 +208,6 @@ export default function GoalTrajectoryCard({ data }: Props) {
               <TrajectoryChart metric={data.bf_pct!} color="#f97316" unit="%" today={today} />
             </div>
           )}
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-gray-400"></span> Actual</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-gray-400"></span> Required</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-blue-400"></span> Projected</span>
-          </div>
         </div>
       )}
     </div>

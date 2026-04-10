@@ -760,7 +760,7 @@ export default function Settings() {
                     <label className={labelClass}>Weight Goal (lbs)</label>
                     <input
                       type="number"
-                      value={(profileForm as any).weight_goal_lbs ?? ""}
+                      value={profileForm.weight_goal_lbs ?? ""}
                       onChange={(e) => handleFieldChange("weight_goal_lbs", e.target.value ? parseFloat(e.target.value) : null)}
                       step="0.1"
                       min="80"

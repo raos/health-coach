@@ -4,6 +4,8 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from database.models import WeightLog, UserProfile
+
 
 def _linear_regression(points: list[tuple[float, float]]) -> tuple[float, float]:
     """Ordinary least-squares. Returns (slope, intercept) for y = slope*x + intercept."""
@@ -103,8 +105,6 @@ def _compute_trajectory(
 
 def get_goal_projection(db: Session, user_id: uuid.UUID) -> dict:
     """Return projection data for weight and BF% toward the user's goal date."""
-    from database.models import WeightLog, UserProfile
-
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if not profile or not profile.goal_date:
         return {"goal_date": None, "weight": None, "bf_pct": None}
@@ -112,7 +112,7 @@ def get_goal_projection(db: Session, user_id: uuid.UUID) -> dict:
     goal_date = profile.goal_date
 
     weight_result = None
-    if profile.weight_goal_lbs:
+    if profile.weight_goal_lbs is not None:
         weight_logs = (
             db.query(WeightLog)
             .filter(WeightLog.user_id == user_id)
@@ -126,7 +126,7 @@ def get_goal_projection(db: Session, user_id: uuid.UUID) -> dict:
         )
 
     bf_result = None
-    if profile.bf_goal_pct:
+    if profile.bf_goal_pct is not None:
         bf_logs = (
             db.query(WeightLog)
             .filter(WeightLog.user_id == user_id, WeightLog.body_fat_pct.isnot(None))
