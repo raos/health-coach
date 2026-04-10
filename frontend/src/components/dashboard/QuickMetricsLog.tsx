@@ -15,6 +15,7 @@ export default function QuickMetricsLog({ onLogged }: Props) {
 
   // Weight
   const [weight, setWeight] = useState("");
+  const [weightBfPct, setWeightBfPct] = useState("");
   // Body fat
   const [bfPct, setBfPct] = useState("");
   // VO2 max
@@ -40,8 +41,10 @@ export default function QuickMetricsLog({ onLogged }: Props) {
 
       if (tab === "weight") {
         if (!weight || isNaN(Number(weight))) { setError("Enter a valid weight"); return; }
-        await logWeight(today, Number(weight));
+        const bfPct = weightBfPct && !isNaN(Number(weightBfPct)) ? Number(weightBfPct) : null;
+        await logWeight(today, Number(weight), undefined, bfPct);
         setWeight("");
+        setWeightBfPct("");
       } else if (tab === "bodyfat") {
         if (!bfPct || isNaN(Number(bfPct))) { setError("Enter a valid body fat %"); return; }
         await client.post("/api/body-composition/log", {
@@ -97,10 +100,17 @@ export default function QuickMetricsLog({ onLogged }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {tab === "weight" && (
-          <div className="flex items-center gap-2">
-            <input type="number" step="0.1" placeholder="Weight" value={weight}
-              onChange={(e) => setWeight(e.target.value)} className={inputCls} />
-            <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">lbs</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.1" placeholder="Weight" value={weight}
+                onChange={(e) => setWeight(e.target.value)} className={inputCls} />
+              <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">lbs</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.1" min="5" max="50" placeholder="Body fat % (optional)" value={weightBfPct}
+                onChange={(e) => setWeightBfPct(e.target.value)} className={inputCls} />
+              <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">%</span>
+            </div>
           </div>
         )}
 
