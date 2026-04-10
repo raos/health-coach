@@ -88,7 +88,7 @@ def _compute_trajectory(
         # weeks_delta: solve slope*x + intercept = goal_value for x
         if abs(slope) > 1e-9:
             crossing_x = (goal_value - intercept) / slope
-            crossing_date = date(2000, 1, 1) + timedelta(days=int(crossing_x))
+            crossing_date = date(2000, 1, 1) + timedelta(days=round(crossing_x))
             weeks_delta = round((goal_date - crossing_date).days / 7)
 
     return {
