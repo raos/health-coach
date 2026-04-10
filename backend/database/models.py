@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import (
     Column, Integer, BigInteger, Float, String, Date, DateTime, Text, Boolean,
     ForeignKey, ForeignKeyConstraint, UniqueConstraint, JSON
@@ -30,7 +30,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
     last_logout_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class InviteCode(Base):
@@ -55,7 +55,7 @@ class MagicLinkToken(Base):
     invite_code = Column(String(50), nullable=True)
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class UserConsent(Base):
@@ -64,7 +64,7 @@ class UserConsent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     consent_version = Column(String(20), nullable=False)
-    consented_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    consented_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     ip_address = Column(String(50), nullable=True)
     user_agent = Column(Text, nullable=True)
 
@@ -77,7 +77,7 @@ class AuditLog(Base):
     action = Column(String(100), nullable=False, index=True)
     ip_address = Column(String(50), nullable=True)
     metadata_json = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ class WeightLog(Base):
     body_fat_pct = Column(Float, nullable=True)
     notes = Column(Text)
     source = Column(String(20), default="manual")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class BodyCompositionLog(Base):
@@ -108,7 +108,7 @@ class BodyCompositionLog(Base):
     lean_mass_lbs = Column(Float, nullable=True)
     fat_mass_lbs = Column(Float, nullable=True)
     notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Vo2MaxLog(Base):
@@ -119,7 +119,7 @@ class Vo2MaxLog(Base):
     date = Column(Date, nullable=False)
     vo2max = Column(Float, nullable=False)
     source = Column(String(20), default="garmin")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class StravaActivity(Base):
@@ -139,7 +139,7 @@ class StravaActivity(Base):
     average_speed = Column(Float)
     kudos_count = Column(Integer)
     raw_json = Column(Text)
-    synced_at = Column(DateTime, default=datetime.utcnow)
+    synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class HevyWorkout(Base):
@@ -153,7 +153,7 @@ class HevyWorkout(Base):
     duration_s = Column(Integer)
     volume_lbs = Column(Float)
     raw_json = Column(Text)
-    synced_at = Column(DateTime, default=datetime.utcnow)
+    synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     exercise_sets = relationship("HevyExerciseSet", back_populates="workout", cascade="all, delete-orphan")
 
@@ -187,7 +187,7 @@ class TrainingPlan(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     week_start = Column(Date, nullable=False)
     plan_json = Column(Text, nullable=False)
     plan_markdown = Column(Text)
@@ -200,7 +200,7 @@ class MealPlan(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     week_start = Column(Date, nullable=False)
     plan_json = Column(Text, nullable=False)
     calorie_target = Column(Integer)
@@ -212,7 +212,7 @@ class HealthInsight(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     insight_type = Column(String(50), nullable=False)
     content_md = Column(Text, nullable=False)
     data_snapshot = Column(Text)
@@ -227,7 +227,7 @@ class CoachConversation(Base):
     session_id = Column(String(100), nullable=False)
     role = Column(String(20), nullable=False)  # 'user' | 'assistant'
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class OAuthToken(Base):
@@ -241,7 +241,7 @@ class OAuthToken(Base):
     refresh_token = Column(EncryptedString)
     expires_at = Column(Integer)  # Unix timestamp
     athlete_id = Column(String(50))
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class DailyHealthCache(Base):
@@ -260,7 +260,7 @@ class DailyHealthCache(Base):
     light_min = Column(Integer)
     steps = Column(Integer)
     resting_hr = Column(Integer)
-    synced_at = Column(DateTime, default=datetime.utcnow)
+    synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 # Keep backward-compatible alias so existing code importing GarminDailyCache still works
@@ -312,7 +312,7 @@ class UserProfile(Base):
     # Legacy recipients (kept for compat)
     training_plan_recipients = Column(Text, nullable=True)
     meal_plan_recipients = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class NutritionLog(Base):
@@ -329,7 +329,7 @@ class NutritionLog(Base):
     carbs_g = Column(Float, nullable=False)
     fat_g = Column(Float, nullable=False)
     source = Column(String(20), default="mcp")
-    logged_at = Column(DateTime, default=datetime.utcnow)
+    logged_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Supplement(Base):
@@ -341,7 +341,7 @@ class Supplement(Base):
     dosage = Column(String(50), nullable=True)
     notes = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     logs = relationship("SupplementLog", back_populates="supplement", cascade="all, delete-orphan")
 
@@ -353,7 +353,7 @@ class SupplementLog(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     supplement_id = Column(Integer, ForeignKey("supplements.id"), nullable=False)
     date = Column(Date, nullable=False, index=True)
-    taken_at = Column(DateTime, default=datetime.utcnow)
+    taken_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     supplement = relationship("Supplement", back_populates="logs")
 
@@ -372,5 +372,5 @@ class WeeklyCheckin(Base):
     diet_adherence = Column(Integer, nullable=True)
     stress_level = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
