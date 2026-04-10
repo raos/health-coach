@@ -10,6 +10,7 @@ class UserProfileResponse(BaseModel):
     height_inches: Optional[float] = None
     email: Optional[str] = ""
     bf_goal_pct: Optional[float] = None
+    weight_goal_lbs: Optional[float] = None
     vo2max_goal: Optional[float] = None
     goal_date: Optional[date] = None
     calorie_target: Optional[int] = None
@@ -42,6 +43,7 @@ class UserProfileUpdate(BaseModel):
     height_inches: Optional[float] = None
     email: Optional[str] = None
     bf_goal_pct: Optional[float] = None
+    weight_goal_lbs: Optional[float] = None
     vo2max_goal: Optional[float] = None
     goal_date: Optional[date] = None
     calorie_target: Optional[int] = None
